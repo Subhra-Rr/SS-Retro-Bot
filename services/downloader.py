@@ -118,7 +118,11 @@ class AudioDownloader:
         file_path = self._prepare_filepath(track)
 
         # Handle YouTube Music / open audio streaming sources
-        if track.id.startswith("yt_") or track.provider_name == "YouTube Music":
+        if (
+            track.id.startswith("yt_")
+            or track.provider_name == "YouTube Music"
+            or (track.audio_url and ("youtube.com" in track.audio_url or "youtu.be" in track.audio_url))
+        ):
             try:
                 target_file = await asyncio.to_thread(
                     self._sync_yt_download, track.audio_url, file_path

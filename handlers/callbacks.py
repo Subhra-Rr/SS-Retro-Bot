@@ -172,9 +172,9 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
 
         # Full audio download button is always provided
         card_lines.append("\n✅ <b>Complete audio track is ready for download.</b>")
-        keyboard.append([
-            InlineKeyboardButton("📥 Download Audio (MP3)", callback_data=f"dl:{track.id}")
-        ])
+        keyboard = [
+            [InlineKeyboardButton("📥 Download Audio (MP3)", callback_data=f"dl:{track.id}")]
+        ]
 
         if track.external_url:
             keyboard.append([
