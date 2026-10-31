@@ -414,3 +414,13 @@ Traceback (most recent call last):
 NameError: name 'registry' is not defined
 2026-10-31 18:52:30 [INFO] telegram.ext.Application: Application is stopping. This might take a moment.
 2026-10-31 18:52:30 [INFO] telegram.ext.Application: Application.stop() complete
+2026-10-31 18:52:35 [INFO] ss_retro_bot: Starting SS Retro Bot...
+2026-10-31 18:52:35 [INFO] ss_retro_bot: Initializing database...
+2026-10-31 18:52:35 [INFO] database: Database schema initialized at D:\SS Retro Bot\data\bot.db
+2026-10-31 18:52:35 [INFO] ss_retro_bot: Active providers (6): YouTube Music, Internet Archive, iTunes, Jamendo, Spotify, MusicBrainz
+2026-10-31 18:52:35 [INFO] ss_retro_bot: Full audio delivery providers (3): YouTube Music, Internet Archive, Jamendo
+2026-10-31 18:52:35 [INFO] ss_retro_bot: Configuration validated. Initializing Telegram application...
+2026-10-31 18:52:35 [INFO] ss_retro_bot: Starting Telegram polling. Press Ctrl+C to terminate.
+2026-10-31 18:52:36 [INFO] telegram.ext.Application: Application started
+2026-10-31 20:14:06 [WARNING] services.providers.spotify: Spotify search HTTP 403
+2026-10-31 20:14:21 [INFO] services.telegram_delivery: Downloading track mb_4f69612f-7848-4a8f-8bc8-bc33e5beb3d9 from MusicBrainz
