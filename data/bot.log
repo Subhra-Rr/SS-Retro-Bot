@@ -108,3 +108,8 @@ telegram.error.BadRequest: Message is not modified: specified new message conten
 2026-10-31 16:15:17 [INFO] database: Database schema initialized at D:\SS Retro Bot\data\bot.db
 2026-10-31 16:15:17 [INFO] ss_retro_bot: Active providers (6): YouTube Music, Internet Archive, iTunes, Jamendo, Spotify, MusicBrainz
 2026-10-31 16:15:17 [INFO] ss_retro_bot: Full audio delivery providers (3): YouTube Music, Internet Archive, Jamendo
+2026-10-31 16:19:54 [INFO] ss_retro_bot: Starting SS Retro Bot...
+2026-10-31 16:19:54 [INFO] ss_retro_bot: Initializing database...
+2026-10-31 16:19:54 [INFO] database: Database schema initialized at D:\SS Retro Bot\data\bot.db
+2026-10-31 16:19:54 [INFO] ss_retro_bot: Active providers (6): YouTube Music, Internet Archive, iTunes, Jamendo, Spotify, MusicBrainz
+2026-10-31 16:19:54 [INFO] ss_retro_bot: Full audio delivery providers (3): YouTube Music, Internet Archive, Jamendo
