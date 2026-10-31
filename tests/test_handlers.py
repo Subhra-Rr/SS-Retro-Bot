@@ -57,25 +57,26 @@ def test_security_utilities():
     assert limiter.retry_after(user_id) > 0.0
 
 
-def test_start_command(tmp_path: Path):
-    db_file = tmp_path / "test_cmd.db"
-    db_inst = Database(db_path=db_file)
-    asyncio.run(db_inst.init_db())
+def test_start_command():
+    async def _run():
+        mock_update = MagicMock()
+        mock_update.effective_user.id = 10101
+        mock_update.effective_user.first_name = "Alex"
+        mock_update.effective_user.username = "alexmusic"
+        mock_update.effective_user.last_name = None
+        mock_update.effective_user.language_code = "en"
+        mock_update.message.reply_text = AsyncMock()
+        mock_update.callback_query = None
 
-    mock_update = MagicMock()
-    mock_update.effective_user.id = 10101
-    mock_update.effective_user.first_name = "Alex"
-    mock_update.effective_user.username = "alexmusic"
-    mock_update.effective_user.last_name = None
-    mock_update.effective_user.language_code = "en"
-    mock_update.message.reply_text = AsyncMock()
+        mock_context = MagicMock()
+        mock_db = AsyncMock()
 
-    mock_context = MagicMock()
+        with patch("handlers.commands.db", mock_db):
+            await start_command(mock_update, mock_context)
 
-    with patch("handlers.commands.db", db_inst):
-        asyncio.run(start_command(mock_update, mock_context))
+        mock_update.message.reply_text.assert_called_once()
+        args, kwargs = mock_update.message.reply_text.call_args
+        assert "Welcome, Alex!" in args[0]
+        assert kwargs.get("reply_markup") is not None
 
-    mock_update.message.reply_text.assert_called_once()
-    args, kwargs = mock_update.message.reply_text.call_args
-    assert "Welcome, Alex!" in args[0]
-    assert kwargs.get("reply_markup") is not None
+    asyncio.run(_run())

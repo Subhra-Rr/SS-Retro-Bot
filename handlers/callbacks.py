@@ -1,11 +1,14 @@
 """
 Callback query handler for interactive inline keyboard buttons, pagination,
 track inspection, audio delivery, favorites, and settings updates.
+Defensively protected against stale queries, timeout races, and unexpected errors.
 """
 
 from __future__ import annotations
 
 import logging
+import re
+from typing import Any
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
@@ -17,40 +20,49 @@ from handlers.commands import (
     help_command,
     recent_command,
     settings_command,
-    start_command,
     top_command,
 )
 from handlers.music import build_search_view, execute_search
 from services.providers.base import UnifiedTrack
+from services.providers.registry import registry
 from services.search_engine import search_engine
 from services.telegram_delivery import audio_delivery
 from utils.formatting import escape_html, format_duration, format_file_size
+from utils.telegram_helpers import safe_answer_callback, safe_delete_message, safe_edit_message
 
 logger = logging.getLogger(__name__)
 
 
+def _clean_track_title(title: str) -> str:
+    """Strip extraneous release tags for cleaner audio stream search."""
+    cleaned = re.sub(r"\(.*?soundtrack.*?\)", "", title, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\(.*?original.*?\)", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\[.*?\]", "", cleaned)
+    return cleaned.strip() or title
+
+
 async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Route callback queries based on prefix."""
+    """Route callback queries based on prefix with comprehensive error protection."""
     query = update.callback_query
     if not query or not query.data:
         return
 
     data = query.data
     user = update.effective_user
-    if not user:
+    chat = update.effective_chat
+    if not user or not chat:
         return
 
     # No-op button (e.g. page indicator)
     if data == "noop":
-        await query.answer()
+        await safe_answer_callback(query)
         return
 
     # Command menu navigations
     if data.startswith("cmd:"):
         cmd = data.split(":", 1)[1]
         if cmd == "start":
-            await query.answer()
-            # Reuse start welcome via edit
+            await safe_answer_callback(query)
             name = escape_html(user.first_name or "Music Lover")
             welcome_text = (
                 f"👋 <b>Welcome back, {name}!</b>\n\n"
@@ -76,7 +88,8 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                     InlineKeyboardButton("ℹ Help & Guide", callback_data="cmd:help"),
                 ],
             ]
-            await query.edit_message_text(
+            await safe_edit_message(
+                query,
                 welcome_text,
                 reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode=ParseMode.HTML,
@@ -113,16 +126,16 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 text, reply_markup = build_search_view(
                     cached.get("query", ""), tracks, page=page_num, page_size=page_size
                 )
-                await query.answer()
-                await query.edit_message_text(text, reply_markup=reply_markup, parse_mode=ParseMode.HTML)
+                await safe_answer_callback(query)
+                await safe_edit_message(query, text, reply_markup=reply_markup, parse_mode=ParseMode.HTML)
             else:
-                await query.answer("Search session expired. Please search again.", show_alert=True)
+                await safe_answer_callback(query, "Search session expired. Please search again.", show_alert=True)
         return
 
     # Track detail card: track:{track_id}
     if data.startswith("track:"):
         track_id = data.split(":", 1)[1]
-        await query.answer("Loading track...")
+        await safe_answer_callback(query, "Loading track...")
 
         # Find track in user search cache or query provider
         track: UnifiedTrack | None = None
@@ -140,7 +153,8 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             track = await search_engine.get_track_by_id(track_id)
 
         if not track:
-            await query.edit_message_text(
+            await safe_edit_message(
+                query,
                 "❌ Track information is no longer available.",
                 reply_markup=InlineKeyboardMarkup(
                     [[InlineKeyboardButton("🔙 Back to Menu", callback_data="cmd:start")]]
@@ -152,9 +166,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         fav_btn_text = "❌ Remove Favorite" if is_fav else "⭐ Add to Favorites"
         fav_cb_data = f"fav_del:{track.id}" if is_fav else f"fav_add:{track.id}"
 
-        # Card text
         duration_str = format_duration(track.duration)
-        size_str = format_file_size(track.file_size) if track.file_size else "Standard"
 
         card_lines = [
             f"🎵 <b>{escape_html(track.title)}</b>",
@@ -170,7 +182,6 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         if track.genre:
             card_lines.append(f"🏷 <b>Genre:</b> {escape_html(track.genre)}")
 
-        # Full audio download button is always provided
         card_lines.append("\n✅ <b>Complete audio track is ready for download.</b>")
         keyboard = [
             [InlineKeyboardButton("📥 Download Audio (MP3)", callback_data=f"dl:{track.id}")]
@@ -188,7 +199,8 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         if context.user_data is not None:
             context.user_data[f"selected:{track.id}"] = track.to_dict()
 
-        await query.edit_message_text(
+        await safe_edit_message(
+            query,
             "\n".join(card_lines),
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode=ParseMode.HTML,
@@ -198,7 +210,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     # Full audio download & delivery: dl:{track_id}
     if data.startswith("dl:"):
         track_id = data.split(":", 1)[1]
-        await query.answer("Preparing audio download...")
+        await safe_answer_callback(query, "Preparing audio download...")
 
         # Retrieve track
         track: UnifiedTrack | None = None
@@ -208,44 +220,66 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             track = await search_engine.get_track_by_id(track_id)
 
         if not track:
-            await query.answer("Could not find track information.", show_alert=True)
+            await safe_answer_callback(query, "Could not find track information.", show_alert=True)
             return
 
-        status_msg = await query.message.reply_text(
-            f"⏳ <i>Downloading audio for '<b>{escape_html(track.title)}</b>'...</i>",
-            parse_mode=ParseMode.HTML,
-        )
-
-        # If track has no direct audio (e.g. from iTunes/Spotify), find matching stream
-        if not track.has_full_audio or not track.audio_url:
-            yt_provider = registry.get_provider("YouTube Music")
-            if yt_provider:
-                search_term = f"{track.title} {track.artist}"
-                yt_results = await yt_provider.search(search_term, limit=1)
-                if yt_results:
-                    track.audio_url = yt_results[0].audio_url
-                    track.has_full_audio = True
-                    track.allow_redistribution = True
-
-        if not track.has_full_audio or not track.audio_url:
-            await status_msg.edit_text("❌ Could not locate an audio stream for this track.")
-            return
-
-        success, err, msg = await audio_delivery.deliver_track(
-            bot=context.bot,
-            chat_id=query.message.chat_id,
-            track=track,
-            user_id=user.id,
-        )
-
+        status_msg = None
         try:
-            await status_msg.delete()
+            status_msg = await context.bot.send_message(
+                chat_id=chat.id,
+                text=f"⏳ <i>Downloading audio for '<b>{escape_html(track.title)}</b>'...</i>",
+                parse_mode=ParseMode.HTML,
+            )
         except Exception:
             pass
 
-        if not success:
-            await query.message.reply_text(
-                f"❌ <b>Delivery failed:</b> {escape_html(err or 'Unknown error')}",
+        try:
+            # If track has no direct full audio (e.g. from iTunes/Spotify), find matching stream
+            if not track.has_full_audio or not track.audio_url:
+                yt_provider = registry.get_provider("YouTube Music")
+                if yt_provider:
+                    cleaned_title = _clean_track_title(track.title)
+                    search_term = f"{cleaned_title} {track.artist}".strip()
+                    yt_results = await yt_provider.search(search_term, limit=1)
+                    if not yt_results and cleaned_title != track.title:
+                        yt_results = await yt_provider.search(cleaned_title, limit=1)
+
+                    if yt_results:
+                        track.audio_url = yt_results[0].audio_url
+                        track.has_full_audio = True
+                        track.allow_redistribution = True
+
+            if not track.has_full_audio or not track.audio_url:
+                if status_msg:
+                    await safe_edit_message(status_msg, "❌ Could not locate an audio stream for this track.")
+                return
+
+            success, err, msg = await audio_delivery.deliver_track(
+                bot=context.bot,
+                chat_id=chat.id,
+                track=track,
+                user_id=user.id,
+            )
+
+            # Clean up the downloading status indicator message
+            if status_msg:
+                await safe_delete_message(status_msg)
+
+            if not success and err:
+                err_lower = err.lower()
+                if "time" not in err_lower and "out" not in err_lower:
+                    await context.bot.send_message(
+                        chat_id=chat.id,
+                        text=f"❌ <b>Delivery notice:</b> {escape_html(err)}",
+                        parse_mode=ParseMode.HTML,
+                    )
+        except Exception as e:
+            logger.error("Download handling exception for %s: %s", track_id, e, exc_info=True)
+            if status_msg:
+                await safe_delete_message(status_msg)
+            await context.bot.send_message(
+                chat_id=chat.id,
+                text=f"❌ <b>Download notice:</b> {escape_html(str(e))}",
                 parse_mode=ParseMode.HTML,
             )
         return
@@ -262,11 +296,11 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         if track:
             added = await db.add_favorite(user.id, track.to_dict())
             if added:
-                await query.answer("⭐ Added to your favorites!", show_alert=False)
+                await safe_answer_callback(query, "⭐ Added to your favorites!", show_alert=False)
             else:
-                await query.answer("Already in your favorites.", show_alert=False)
+                await safe_answer_callback(query, "Already in your favorites.", show_alert=False)
         else:
-            await query.answer("Could not locate track.", show_alert=True)
+            await safe_answer_callback(query, "Could not locate track.", show_alert=True)
         return
 
     # Remove from favorites: fav_del:{track_id}
@@ -274,10 +308,10 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         track_id = data.split(":", 1)[1]
         removed = await db.remove_favorite(user.id, track_id)
         if removed:
-            await query.answer("Removed from favorites.", show_alert=False)
+            await safe_answer_callback(query, "Removed from favorites.", show_alert=False)
             await favorites_command(update, context)
         else:
-            await query.answer("Track was not in favorites.", show_alert=False)
+            await safe_answer_callback(query, "Track was not in favorites.", show_alert=False)
         return
 
     # User settings change: set:{key}:{val}
@@ -287,9 +321,9 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             key, val = parts[1], parts[2]
             if key == "rpp":
                 await db.update_user_setting(user.id, "results_per_page", int(val))
-                await query.answer(f"Results per page updated to {val}!")
+                await safe_answer_callback(query, f"Results per page updated to {val}!")
             elif key == "lang":
                 await db.update_user_setting(user.id, "preferred_language", val)
-                await query.answer(f"Language filter updated to {val}!")
+                await safe_answer_callback(query, f"Language filter updated to {val}!")
             await settings_command(update, context)
         return

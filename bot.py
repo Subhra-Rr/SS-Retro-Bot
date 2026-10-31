@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 
 from telegram import Update
-from telegram.error import NetworkError, TelegramError
+from telegram.error import BadRequest, Conflict, NetworkError, TelegramError, TimedOut
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -49,11 +49,33 @@ logger = logging.getLogger("ss_retro_bot")
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Global error handler capturing unexpected Telegram exceptions."""
-    logger.error("Exception while handling an update: %s", context.error, exc_info=context.error)
+    err = context.error
+    if not err:
+        return
+
+    err_str = str(err).lower()
+    # Suppress non-fatal or expected Telegram UI conditions and timeout acknowledgments
+    if (
+        isinstance(err, (BadRequest, TimedOut, NetworkError, Conflict))
+        or ("time" in err_str and "out" in err_str)
+    ):
+        if (
+            "not modified" in err_str
+            or "query is too old" in err_str
+            or "message to edit not found" in err_str
+            or "timed out" in err_str
+            or "timeout" in err_str
+            or "chat not found" in err_str
+            or "conflict" in err_str
+        ):
+            logger.debug("Suppressed transient Telegram update error: %s", err)
+            return
+
+    logger.error("Exception while handling an update: %s", err, exc_info=err)
     if isinstance(update, Update) and update.effective_message:
         try:
             await update.effective_message.reply_text(
-                "⚠️ An unexpected error occurred while processing your request. Please try again shortly."
+                "⚠️ Could not complete this request. Please try again shortly."
             )
         except Exception:
             pass

@@ -18,6 +18,7 @@ from services.providers.base import UnifiedTrack
 from services.search_engine import search_engine
 from utils.formatting import escape_html, format_track_summary
 from utils.security import UserRateLimiter, sanitize_query
+from utils.telegram_helpers import safe_answer_callback, safe_edit_message
 
 logger = logging.getLogger(__name__)
 
@@ -122,7 +123,7 @@ async def execute_search(
             parse_mode=ParseMode.HTML,
         )
     elif update.callback_query:
-        await update.callback_query.answer()
+        await safe_answer_callback(update.callback_query)
         status_msg = update.callback_query.message
 
     # Perform search
@@ -141,7 +142,8 @@ async def execute_search(
             [InlineKeyboardButton("🔙 Back to Menu", callback_data="cmd:start")],
         ]
         if status_msg:
-            await status_msg.edit_text(
+            await safe_edit_message(
+                status_msg,
                 no_res_text,
                 reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode=ParseMode.HTML,
@@ -158,7 +160,7 @@ async def execute_search(
 
     text, reply_markup = build_search_view(cleaned_query, tracks, page=1, page_size=page_size)
     if status_msg:
-        await status_msg.edit_text(text, reply_markup=reply_markup, parse_mode=ParseMode.HTML)
+        await safe_edit_message(status_msg, text, reply_markup=reply_markup, parse_mode=ParseMode.HTML)
 
 
 async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

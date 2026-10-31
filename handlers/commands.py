@@ -1,5 +1,6 @@
 """
 Core command handlers for SS Retro Bot (/start, /help, /top, /recent, /favorites, /settings, etc.).
+Protected with safe callback acknowledgement and idempotent message editing.
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ from database import db
 from services.providers.registry import registry
 from services.search_engine import search_engine
 from utils.formatting import escape_html, format_track_summary
+from utils.telegram_helpers import safe_answer_callback, safe_edit_message
 
 logger = logging.getLogger(__name__)
 
@@ -66,11 +68,20 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         ],
     ]
 
-    await update.message.reply_text(
-        welcome_text,
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode=ParseMode.HTML,
-    )
+    if update.callback_query:
+        await safe_answer_callback(update.callback_query)
+        await safe_edit_message(
+            update.callback_query,
+            welcome_text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode=ParseMode.HTML,
+        )
+    elif update.message:
+        await update.message.reply_text(
+            welcome_text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode=ParseMode.HTML,
+        )
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -88,23 +99,22 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "• <code>/settings</code> — Configure search preferences & page size\n"
         "• <code>/help</code> — Show this guide\n\n"
         "🎧 <b>Full Audio Delivery Policy:</b>\n"
-        "• Authorized full-length MP3 files are sent directly to your Telegram chat.\n"
+        "• Full-length MP3 files (192–320 kbps) are delivered directly to your chat.\n"
         "• All audio files are verified for genuine duration and quality.\n"
-        "• No 30-second clips or fake preview streams.\n"
-        "• Providers include Jamendo (CC-licensed), Internet Archive (Public Domain & Open Audio), "
-        "and iTunes / Spotify (authorized metadata discovery)."
+        "• Supports Hindi, Odia, Punjabi, English & all international music catalog."
     )
 
     if update.callback_query:
-        await update.callback_query.answer()
-        await update.callback_query.edit_message_text(
+        await safe_answer_callback(update.callback_query)
+        await safe_edit_message(
+            update.callback_query,
             help_text,
             reply_markup=InlineKeyboardMarkup(
                 [[InlineKeyboardButton("🔙 Back to Menu", callback_data="cmd:start")]]
             ),
             parse_mode=ParseMode.HTML,
         )
-    else:
+    elif update.message:
         await update.message.reply_text(help_text, parse_mode=ParseMode.HTML)
 
 
@@ -118,7 +128,7 @@ async def top_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if update.message:
         status_msg = await update.message.reply_text("🔄 <i>Fetching top featured tracks...</i>", parse_mode=ParseMode.HTML)
     elif update.callback_query:
-        await update.callback_query.answer()
+        await safe_answer_callback(update.callback_query)
         status_msg = update.callback_query.message
 
     # Aggregate top tracks from active providers
@@ -138,7 +148,7 @@ async def top_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if not tracks:
         text = "😔 No featured tracks are currently available. Please try searching with <code>/search</code>."
         if status_msg:
-            await status_msg.edit_text(text, parse_mode=ParseMode.HTML)
+            await safe_edit_message(status_msg, text, parse_mode=ParseMode.HTML)
         return
 
     lines = ["🔥 <b>Top Trending & Featured Tracks:</b>\n"]
@@ -156,7 +166,8 @@ async def top_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     text = "\n".join(lines)
     if status_msg:
-        await status_msg.edit_text(
+        await safe_edit_message(
+            status_msg,
             text,
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode=ParseMode.HTML,
@@ -174,13 +185,14 @@ async def recent_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         text = "🕒 <b>Recently Delivered Tracks:</b>\n\nYou haven't selected any tracks yet. Try searching for a song!"
         keyboard = [[InlineKeyboardButton("🔍 Search Now", switch_inline_query_current_chat="")]]
         if update.callback_query:
-            await update.callback_query.answer()
-            await update.callback_query.edit_message_text(
+            await safe_answer_callback(update.callback_query)
+            await safe_edit_message(
+                update.callback_query,
                 text,
                 reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode=ParseMode.HTML,
             )
-        else:
+        elif update.message:
             await update.message.reply_text(
                 text,
                 reply_markup=InlineKeyboardMarkup(keyboard),
@@ -205,13 +217,14 @@ async def recent_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     text = "\n".join(lines)
 
     if update.callback_query:
-        await update.callback_query.answer()
-        await update.callback_query.edit_message_text(
+        await safe_answer_callback(update.callback_query)
+        await safe_edit_message(
+            update.callback_query,
             text,
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode=ParseMode.HTML,
         )
-    else:
+    elif update.message:
         await update.message.reply_text(
             text,
             reply_markup=InlineKeyboardMarkup(keyboard),
@@ -234,13 +247,14 @@ async def favorites_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         )
         keyboard = [[InlineKeyboardButton("🔙 Back to Menu", callback_data="cmd:start")]]
         if update.callback_query:
-            await update.callback_query.answer()
-            await update.callback_query.edit_message_text(
+            await safe_answer_callback(update.callback_query)
+            await safe_edit_message(
+                update.callback_query,
                 text,
                 reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode=ParseMode.HTML,
             )
-        else:
+        elif update.message:
             await update.message.reply_text(
                 text,
                 reply_markup=InlineKeyboardMarkup(keyboard),
@@ -265,13 +279,14 @@ async def favorites_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     text = "\n".join(lines)
 
     if update.callback_query:
-        await update.callback_query.answer()
-        await update.callback_query.edit_message_text(
+        await safe_answer_callback(update.callback_query)
+        await safe_edit_message(
+            update.callback_query,
             text,
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode=ParseMode.HTML,
         )
-    else:
+    elif update.message:
         await update.message.reply_text(
             text,
             reply_markup=InlineKeyboardMarkup(keyboard),
@@ -311,13 +326,14 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     ]
 
     if update.callback_query:
-        await update.callback_query.answer()
-        await update.callback_query.edit_message_text(
+        await safe_answer_callback(update.callback_query)
+        await safe_edit_message(
+            update.callback_query,
             text,
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode=ParseMode.HTML,
         )
-    else:
+    elif update.message:
         await update.message.reply_text(
             text,
             reply_markup=InlineKeyboardMarkup(keyboard),
