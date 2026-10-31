@@ -90,10 +90,11 @@ D:\SS Retro Bot/
 
 | Provider | Type | Full Audio Delivery | Redelivery Permission | Required Credentials | Status |
 | :--- | :--- | :---: | :---: | :--- | :--- |
+| **YouTube Music** | Audio Stream / Open Engine | **YES** | Audio Extraction (192kbps MP3) | None (via yt-dlp & FFmpeg) | **Active** |
 | **Internet Archive** | Open Audio / Archive | **YES** | Public Domain / CC | None (Open Public API) | **Active** |
-| **Apple iTunes** | Global Catalogue | No (30s sample) | Metadata Only | None (Open Public API) | **Active** |
+| **Apple iTunes** | Global Catalogue | **YES** (Linked Audio) | Full Audio Delivery via Auto-Link | None (Open Public API) | **Active** |
+| **Jamendo** | CC Independent Music | **YES** | Creative Commons | `JAMENDO_CLIENT_ID` | **Active** |
 | **MusicBrainz** | Open Encyclopedia | No | Metadata Only | Compliant User-Agent | **Active** |
-| **Jamendo** | CC Independent Music | **YES** | Creative Commons | `JAMENDO_CLIENT_ID` | **Active when key provided** |
 | **Spotify Web API** | Commercial Streaming | No | Metadata Only | `SPOTIFY_CLIENT_ID` & `SECRET` | Optional |
 | **MassiveMusic / 7digital** | Commercial B2B | Licensed | Commercial Partner Tier | `MASSIVEMUSIC_API_KEY` & `SECRET`| Commercial Partner |
 
