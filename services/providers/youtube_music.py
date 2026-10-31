@@ -10,6 +10,7 @@ import asyncio
 import logging
 import re
 from typing import Any, Dict, List, Optional
+from urllib.parse import parse_qs, urlparse
 
 import yt_dlp
 

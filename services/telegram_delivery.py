@@ -20,6 +20,7 @@ from services.audio_validator import audio_validator
 from services.downloader import audio_downloader
 from services.providers.base import UnifiedTrack
 from utils.formatting import escape_html, format_duration
+from utils.security import sanitize_filename
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +100,9 @@ class TelegramAudioDelivery:
         )
 
         # Step 5: Send audio directly to Telegram
+        safe_name = sanitize_filename(f"{track.artist} - {track.title}")
+        safe_filename = f"{safe_name}.mp3" if not safe_name.lower().endswith(".mp3") else safe_name
+
         try:
             with open(file_path, "rb") as audio_file:
                 msg = await bot.send_audio(
@@ -108,6 +112,7 @@ class TelegramAudioDelivery:
                     parse_mode=ParseMode.HTML,
                     title=track.title,
                     performer=track.artist,
+                    filename=safe_filename,
                     duration=file_duration,
                     write_timeout=180.0,
                     read_timeout=60.0,

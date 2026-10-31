@@ -8,11 +8,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import shutil
+import subprocess
 import uuid
 from pathlib import Path
 from typing import Optional
 
 import httpx
+import yt_dlp
 from mutagen.id3 import ID3, TALB, TIT2, TPE1, ID3NoHeaderError
 
 from config import config
@@ -51,11 +54,10 @@ class AudioDownloader:
         self.max_bytes = max_bytes or config.max_file_size_bytes
 
     def _prepare_filepath(self, track: UnifiedTrack) -> Path:
-        """Generate a safe, unique local file destination."""
+        """Generate a collision-free local temporary file destination."""
         self.download_dir.mkdir(parents=True, exist_ok=True)
-        safe_title = sanitize_filename(f"{track.artist} - {track.title}")
-        unique_token = uuid.uuid4().hex[:8]
-        return self.download_dir / f"{safe_title}_{unique_token}.mp3"
+        unique_token = uuid.uuid4().hex[:12]
+        return self.download_dir / f"stream_{unique_token}.mp3"
 
     def _tag_mp3(self, file_path: Path, track: UnifiedTrack) -> None:
         """Inject or standardize ID3v2 tags for rich Telegram display."""
@@ -108,10 +110,18 @@ class AudioDownloader:
         else:
             chosen_quality = "320"
 
-        base_path = output_path.with_suffix("")
+        # Unique, clean alphanumeric token to prevent format collisions with % (e.g. '99% Headshot'),
+        # emojis, dots, or Windows path constraints.
+        self.download_dir.mkdir(parents=True, exist_ok=True)
+        token = uuid.uuid4().hex[:12]
+        outtmpl = str(self.download_dir / f"yt_{token}.%(ext)s")
+        target_mp3 = self.download_dir / f"yt_{token}.mp3"
+
+        import shutil
+        ffmpeg_bin = shutil.which("ffmpeg")
         ydl_opts = {
             "format": "bestaudio/best",
-            "outtmpl": str(base_path) + ".%(ext)s",
+            "outtmpl": outtmpl,
             "postprocessors": [
                 {
                     "key": "FFmpegExtractAudio",
@@ -121,22 +131,47 @@ class AudioDownloader:
             ],
             "quiet": True,
             "no_warnings": True,
-            # No max_filesize constraint here so video container size does not prematurely abort audio streams
         }
+        if ffmpeg_bin:
+            ydl_opts["ffmpeg_location"] = ffmpeg_bin
+
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([url])
 
-            target_mp3 = base_path.with_suffix(".mp3")
+            # Check if target MP3 exists
             if target_mp3.exists() and target_mp3.stat().st_size > 0:
                 file_size = target_mp3.stat().st_size
                 if file_size > self.max_bytes:
-                    target_mp3.unlink()
+                    target_mp3.unlink(missing_ok=True)
                     return (
                         None,
                         "Audio file exceeds Telegram's 50MB upload limit. Please select a shorter track.",
                     )
                 return target_mp3, None
+
+            # Fallback check: find any file produced with the token
+            for candidate in self.download_dir.glob(f"yt_{token}.*"):
+                if candidate.is_file() and candidate.stat().st_size > 0:
+                    if candidate.suffix.lower() == ".mp3":
+                        return candidate, None
+                    # If file is not mp3 and ffmpeg is available, convert directly
+                    if ffmpeg_bin:
+                        import subprocess
+                        conv_cmd = [
+                            ffmpeg_bin,
+                            "-y",
+                            "-i", str(candidate),
+                            "-vn",
+                            "-acodec", "libmp3lame",
+                            "-b:a", f"{chosen_quality}k",
+                            str(target_mp3),
+                        ]
+                        subprocess.run(conv_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        candidate.unlink(missing_ok=True)
+                        if target_mp3.exists() and target_mp3.stat().st_size > 0:
+                            return target_mp3, None
+
             return None, "Audio extraction did not produce a valid file."
         except Exception as e:
             logger.error("yt-dlp download error on %s: %s", url, e)
@@ -159,6 +194,7 @@ class AudioDownloader:
             or track.provider_name == "YouTube Music"
             or (track.audio_url and ("youtube.com" in track.audio_url or "youtu.be" in track.audio_url))
         ):
+            target_file = None
             try:
                 target_file, dl_err = await asyncio.to_thread(
                     self._sync_yt_download, track.audio_url, file_path, track.duration
@@ -168,7 +204,7 @@ class AudioDownloader:
                 self._tag_mp3(target_file, track)
                 return target_file, None
             except Exception as e:
-                self.cleanup(file_path)
+                self.cleanup(target_file or file_path)
                 return None, f"Audio download failed: {e}"
 
         total_downloaded = 0
