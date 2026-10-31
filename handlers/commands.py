@@ -1,0 +1,325 @@
+"""
+Core command handlers for SS Retro Bot (/start, /help, /top, /recent, /favorites, /settings, etc.).
+"""
+
+from __future__ import annotations
+
+import logging
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.constants import ParseMode
+from telegram.ext import ContextTypes
+
+from config import config
+from database import db
+from services.providers.registry import registry
+from services.search_engine import search_engine
+from utils.formatting import escape_html, format_track_summary
+
+logger = logging.getLogger(__name__)
+
+
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /start command with rich welcome card and category exploration."""
+    user = update.effective_user
+    if not user:
+        return
+
+    # Record or update user
+    await db.upsert_user(
+        user_id=user.id,
+        username=user.username,
+        first_name=user.first_name,
+        last_name=user.last_name,
+        language_code=user.language_code,
+    )
+    await db.record_event("start_command", user.id)
+
+    name = escape_html(user.first_name or "Music Lover")
+    welcome_text = (
+        f"👋 <b>Welcome, {name}!</b>\n\n"
+        f"🎧 <b>SS Retro Bot</b> is your universal music discovery and authorized audio delivery platform.\n\n"
+        f"🔍 <b>What can you search?</b>\n"
+        f"• Hindi & Bollywood hits\n"
+        f"• Odia, Bengali, Punjabi, Telugu, Tamil & regional music\n"
+        f"• International pop, rock, electronic & classical\n"
+        f"• Devotional, vintage retro classics, remixes & independent songs\n\n"
+        f"💡 <i>Type any song or artist name directly in the chat, or use commands below:</i>"
+    )
+
+    keyboard = [
+        [
+            InlineKeyboardButton("🔍 Search Music", switch_inline_query_current_chat=""),
+            InlineKeyboardButton("🔥 Top Hits", callback_data="cmd:top"),
+        ],
+        [
+            InlineKeyboardButton("⭐ Favorites", callback_data="cmd:favorites"),
+            InlineKeyboardButton("🕒 Recent", callback_data="cmd:recent"),
+        ],
+        [
+            InlineKeyboardButton("🇮🇳 Hindi Hits", callback_data="qsearch:Hindi"),
+            InlineKeyboardButton("🌸 Odia Songs", callback_data="qsearch:Odia"),
+            InlineKeyboardButton("🎸 Rock", callback_data="qsearch:Rock"),
+        ],
+        [
+            InlineKeyboardButton("⚙ Settings", callback_data="cmd:settings"),
+            InlineKeyboardButton("ℹ Help & Guide", callback_data="cmd:help"),
+        ],
+    ]
+
+    await update.message.reply_text(
+        welcome_text,
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode=ParseMode.HTML,
+    )
+
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /help command explaining commands and search features."""
+    help_text = (
+        "📚 <b>SS Retro Bot — User Guide</b>\n\n"
+        "<b>Available Commands:</b>\n"
+        "• <code>/search &lt;query&gt;</code> — Search songs, artists, albums, or lyrics\n"
+        "• <code>/song &lt;title&gt;</code> — Dedicated track search\n"
+        "• <code>/artist &lt;name&gt;</code> — Discover songs by artist\n"
+        "• <code>/album &lt;name&gt;</code> — Search music albums\n"
+        "• <code>/top</code> — Explore featured & trending music\n"
+        "• <code>/recent</code> — View your recently delivered tracks\n"
+        "• <code>/favorites</code> — Access your saved favorite tracks\n"
+        "• <code>/settings</code> — Configure search preferences & page size\n"
+        "• <code>/help</code> — Show this guide\n\n"
+        "🎧 <b>Full Audio Delivery Policy:</b>\n"
+        "• Authorized full-length MP3 files are sent directly to your Telegram chat.\n"
+        "• All audio files are verified for genuine duration and quality.\n"
+        "• No 30-second clips or fake preview streams.\n"
+        "• Providers include Jamendo (CC-licensed), Internet Archive (Public Domain & Open Audio), "
+        "and iTunes / Spotify (authorized metadata discovery)."
+    )
+
+    if update.callback_query:
+        await update.callback_query.answer()
+        await update.callback_query.edit_message_text(
+            help_text,
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("🔙 Back to Menu", callback_data="cmd:start")]]
+            ),
+            parse_mode=ParseMode.HTML,
+        )
+    else:
+        await update.message.reply_text(help_text, parse_mode=ParseMode.HTML)
+
+
+async def top_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /top command showing popular or featured tracks."""
+    user_id = update.effective_user.id if update.effective_user else None
+    if user_id:
+        await db.record_event("top_command", user_id)
+
+    status_msg = None
+    if update.message:
+        status_msg = await update.message.reply_text("🔄 <i>Fetching top featured tracks...</i>", parse_mode=ParseMode.HTML)
+    elif update.callback_query:
+        await update.callback_query.answer()
+        status_msg = update.callback_query.message
+
+    # Aggregate top tracks from active providers
+    tracks = []
+    for provider in registry.get_configured():
+        try:
+            top = await provider.get_top_tracks(limit=5)
+            if top:
+                tracks.extend(top)
+        except Exception as e:
+            logger.debug("Error fetching top tracks from %s: %s", provider.name, e)
+
+    if not tracks:
+        # Fallback to searching popular hits
+        tracks = await search_engine.search("top hits", user_id=user_id, max_total_results=10)
+
+    if not tracks:
+        text = "😔 No featured tracks are currently available. Please try searching with <code>/search</code>."
+        if status_msg:
+            await status_msg.edit_text(text, parse_mode=ParseMode.HTML)
+        return
+
+    lines = ["🔥 <b>Top Trending & Featured Tracks:</b>\n"]
+    keyboard = []
+    for idx, track in enumerate(tracks[:8], start=1):
+        lines.append(format_track_summary(track.to_dict(), index=idx))
+        keyboard.append([
+            InlineKeyboardButton(
+                f"{idx}. {track.title[:25]}",
+                callback_data=f"track:{track.id}",
+            )
+        ])
+
+    keyboard.append([InlineKeyboardButton("🔙 Back to Menu", callback_data="cmd:start")])
+
+    text = "\n".join(lines)
+    if status_msg:
+        await status_msg.edit_text(
+            text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode=ParseMode.HTML,
+        )
+
+
+async def recent_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /recent command displaying recently selected tracks."""
+    user = update.effective_user
+    if not user:
+        return
+
+    recents = await db.get_recent_tracks(user.id, limit=10)
+    if not recents:
+        text = "🕒 <b>Recently Delivered Tracks:</b>\n\nYou haven't selected any tracks yet. Try searching for a song!"
+        keyboard = [[InlineKeyboardButton("🔍 Search Now", switch_inline_query_current_chat="")]]
+        if update.callback_query:
+            await update.callback_query.answer()
+            await update.callback_query.edit_message_text(
+                text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.HTML,
+            )
+        else:
+            await update.message.reply_text(
+                text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.HTML,
+            )
+        return
+
+    lines = ["🕒 <b>Your Recent Tracks:</b>\n"]
+    keyboard = []
+    for idx, track in enumerate(recents, start=1):
+        lines.append(format_track_summary(track, index=idx))
+        track_id = track.get("id")
+        if track_id:
+            keyboard.append([
+                InlineKeyboardButton(
+                    f"{idx}. {track.get('title', 'Track')[:25]}",
+                    callback_data=f"track:{track_id}",
+                )
+            ])
+
+    keyboard.append([InlineKeyboardButton("🔙 Back to Menu", callback_data="cmd:start")])
+    text = "\n".join(lines)
+
+    if update.callback_query:
+        await update.callback_query.answer()
+        await update.callback_query.edit_message_text(
+            text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode=ParseMode.HTML,
+        )
+    else:
+        await update.message.reply_text(
+            text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode=ParseMode.HTML,
+        )
+
+
+async def favorites_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /favorites command displaying user's saved library."""
+    user = update.effective_user
+    if not user:
+        return
+
+    favorites = await db.get_favorites(user.id, limit=20)
+    if not favorites:
+        text = (
+            "⭐ <b>Your Favorite Tracks:</b>\n\n"
+            "You haven't saved any tracks yet.\n"
+            "When viewing any song details card, click <b>⭐ Add to Favorites</b> to save it here!"
+        )
+        keyboard = [[InlineKeyboardButton("🔙 Back to Menu", callback_data="cmd:start")]]
+        if update.callback_query:
+            await update.callback_query.answer()
+            await update.callback_query.edit_message_text(
+                text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.HTML,
+            )
+        else:
+            await update.message.reply_text(
+                text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode=ParseMode.HTML,
+            )
+        return
+
+    lines = ["⭐ <b>Your Saved Favorites:</b>\n"]
+    keyboard = []
+    for idx, track in enumerate(favorites, start=1):
+        lines.append(format_track_summary(track, index=idx))
+        track_id = track.get("id")
+        if track_id:
+            keyboard.append([
+                InlineKeyboardButton(
+                    f"{idx}. {track.get('title', 'Track')[:25]}",
+                    callback_data=f"track:{track_id}",
+                )
+            ])
+
+    keyboard.append([InlineKeyboardButton("🔙 Back to Menu", callback_data="cmd:start")])
+    text = "\n".join(lines)
+
+    if update.callback_query:
+        await update.callback_query.answer()
+        await update.callback_query.edit_message_text(
+            text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode=ParseMode.HTML,
+        )
+    else:
+        await update.message.reply_text(
+            text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode=ParseMode.HTML,
+        )
+
+
+async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /settings command for managing user preferences."""
+    user = update.effective_user
+    if not user:
+        return
+
+    settings = await db.get_user_settings(user.id)
+    rpp = settings.get("results_per_page", config.default_results_per_page)
+    lang = settings.get("preferred_language", "all")
+
+    text = (
+        "⚙ <b>User Settings & Preferences</b>\n\n"
+        f"• <b>Results per page:</b> <code>{rpp}</code>\n"
+        f"• <b>Preferred Language:</b> <code>{lang.capitalize()}</code>\n\n"
+        "Customize how search results and navigation are displayed:"
+    )
+
+    keyboard = [
+        [
+            InlineKeyboardButton("📄 3 per page", callback_data="set:rpp:3"),
+            InlineKeyboardButton("📄 5 per page", callback_data="set:rpp:5"),
+            InlineKeyboardButton("📄 8 per page", callback_data="set:rpp:8"),
+        ],
+        [
+            InlineKeyboardButton("🌐 All Languages", callback_data="set:lang:all"),
+            InlineKeyboardButton("🇮🇳 Hindi", callback_data="set:lang:hindi"),
+            InlineKeyboardButton("🌸 Odia", callback_data="set:lang:odia"),
+        ],
+        [InlineKeyboardButton("🔙 Back to Menu", callback_data="cmd:start")],
+    ]
+
+    if update.callback_query:
+        await update.callback_query.answer()
+        await update.callback_query.edit_message_text(
+            text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode=ParseMode.HTML,
+        )
+    else:
+        await update.message.reply_text(
+            text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode=ParseMode.HTML,
+        )

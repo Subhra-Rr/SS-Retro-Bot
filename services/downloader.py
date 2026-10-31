@@ -1,0 +1,149 @@
+"""
+Audio Download and Metadata Tagging Service.
+Safely downloads authorized audio files, streams with size limits, updates ID3 tags,
+and manages temporary file lifecycles.
+"""
+
+from __future__ import annotations
+
+import logging
+import uuid
+from pathlib import Path
+from typing import Optional
+
+import httpx
+from mutagen.id3 import ID3, TALB, TIT2, TPE1, ID3NoHeaderError
+
+from config import config
+from services.providers.base import UnifiedTrack
+from utils.security import sanitize_filename
+
+logger = logging.getLogger(__name__)
+
+
+def license_allows_delivery(track: UnifiedTrack) -> tuple[bool, str]:
+    """
+    Verify whether the track has authorized permissions for complete full audio delivery.
+    Enforces strict compliance with Section 4.
+    """
+    if not track.has_full_audio or not track.audio_url:
+        return (
+            False,
+            "This track is available for metadata and discovery only. "
+            "The provider does not license full-track audio downloads.",
+        )
+
+    if not track.allow_redistribution:
+        return (
+            False,
+            "Redistribution permissions are not granted by the rights holder for this track.",
+        )
+
+    return True, "Authorized"
+
+
+class AudioDownloader:
+    """Manages secure downloads of authorized audio tracks."""
+
+    def __init__(self, download_dir: Path | None = None, max_bytes: int | None = None):
+        self.download_dir = download_dir or config.temp_download_dir
+        self.max_bytes = max_bytes or config.max_file_size_bytes
+
+    def _prepare_filepath(self, track: UnifiedTrack) -> Path:
+        """Generate a safe, unique local file destination."""
+        self.download_dir.mkdir(parents=True, exist_ok=True)
+        safe_title = sanitize_filename(f"{track.artist} - {track.title}")
+        unique_token = uuid.uuid4().hex[:8]
+        return self.download_dir / f"{safe_title}_{unique_token}.mp3"
+
+    def _tag_mp3(self, file_path: Path, track: UnifiedTrack) -> None:
+        """Inject or standardize ID3v2 tags for rich Telegram display."""
+        try:
+            try:
+                tags = ID3(str(file_path))
+            except ID3NoHeaderError:
+                tags = ID3()
+
+            if track.title:
+                tags["TIT2"] = TIT2(encoding=3, text=track.title)
+            if track.artist:
+                tags["TPE1"] = TPE1(encoding=3, text=track.artist)
+            if track.album:
+                tags["TALB"] = TALB(encoding=3, text=track.album)
+
+            tags.save(str(file_path))
+        except Exception as e:
+            logger.warning("Could not write ID3 tags to %s: %s", file_path.name, e)
+
+    async def download_track(self, track: UnifiedTrack) -> tuple[Optional[Path], Optional[str]]:
+        """
+        Download complete audio track to temporary disk storage.
+        Returns: (file_path, error_message)
+        """
+        allowed, reason = license_allows_delivery(track)
+        if not allowed:
+            return None, reason
+
+        file_path = self._prepare_filepath(track)
+        total_downloaded = 0
+
+        try:
+            timeout = httpx.Timeout(config.download_timeout_seconds, connect=10.0)
+            async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+                async with client.stream("GET", track.audio_url) as response:
+                    if response.status_code != 200:
+                        return (
+                            None,
+                            f"Provider audio server returned HTTP error {response.status_code}.",
+                        )
+
+                    # Check Content-Length header if provided
+                    content_length = response.headers.get("Content-Length")
+                    if content_length and int(content_length) > self.max_bytes:
+                        max_mb = self.max_bytes / (1024 * 1024)
+                        return (
+                            None,
+                            f"Audio file exceeds {max_mb:.0f}MB Telegram upload limit.",
+                        )
+
+                    with open(file_path, "wb") as f:
+                        async for chunk in response.aiter_bytes(chunk_size=65536):
+                            total_downloaded += len(chunk)
+                            if total_downloaded > self.max_bytes:
+                                f.close()
+                                self.cleanup(file_path)
+                                return (
+                                    None,
+                                    "Download aborted: file exceeded maximum allowable file size.",
+                                )
+                            f.write(chunk)
+
+            if total_downloaded == 0:
+                self.cleanup(file_path)
+                return None, "Downloaded file was empty (0 bytes received)."
+
+            # Inject tags
+            self._tag_mp3(file_path, track)
+            return file_path, None
+
+        except httpx.TimeoutException:
+            self.cleanup(file_path)
+            return None, "Download timed out while fetching audio stream."
+        except Exception as e:
+            self.cleanup(file_path)
+            logger.error("Download failed for track %s: %s", track.id, e)
+            return None, f"Download failed: {e}"
+
+    @staticmethod
+    def cleanup(file_path: Path | None) -> None:
+        """Safely delete a temporary file if it exists."""
+        if file_path and file_path.exists():
+            try:
+                file_path.unlink()
+                logger.debug("Cleaned up temporary file %s", file_path.name)
+            except Exception as e:
+                logger.warning("Failed to clean up temporary file %s: %s", file_path, e)
+
+
+# Global downloader instance
+audio_downloader = AudioDownloader()
