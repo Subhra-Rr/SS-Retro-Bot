@@ -6,6 +6,7 @@ Delivers complete authorized MP3 files.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import urllib.parse
 from typing import Any, Dict, List, Optional
@@ -109,9 +110,19 @@ class InternetArchiveProvider(BaseMusicProvider):
 
                 data = response.json()
                 docs = data.get("response", {}).get("docs", [])
-                tracks: List[UnifiedTrack] = []
+                if not docs:
+                    return []
 
-                for doc in docs:
+                # Concurrently resolve audio files for all retrieved items
+                resolve_tasks = [
+                    self._resolve_primary_mp3(client, doc.get("identifier", ""))
+                    for doc in docs
+                    if doc.get("identifier")
+                ]
+                resolved_files = await asyncio.gather(*resolve_tasks, return_exceptions=True)
+
+                tracks: List[UnifiedTrack] = []
+                for doc, res in zip(docs, resolved_files):
                     identifier = doc.get("identifier")
                     if not identifier:
                         continue
@@ -132,10 +143,10 @@ class InternetArchiveProvider(BaseMusicProvider):
                     cover_url = f"https://archive.org/services/img/{identifier}"
                     external_url = f"https://archive.org/details/{identifier}"
 
-                    # Fast resolve primary audio link
-                    audio_url, size_bytes, duration = await self._resolve_primary_mp3(
-                        client, identifier
-                    )
+                    if isinstance(res, tuple) and len(res) == 3:
+                        audio_url, size_bytes, duration = res
+                    else:
+                        audio_url, size_bytes, duration = None, None, None
 
                     tracks.append(
                         UnifiedTrack(

@@ -49,7 +49,7 @@ class Config:
         default_factory=lambda: int(os.getenv("DEFAULT_RESULTS_PER_PAGE", "5"))
     )
     search_timeout_seconds: float = field(
-        default_factory=lambda: float(os.getenv("SEARCH_TIMEOUT_SECONDS", "7.0"))
+        default_factory=lambda: float(os.getenv("SEARCH_TIMEOUT_SECONDS", "12.0"))
     )
     download_timeout_seconds: float = field(
         default_factory=lambda: float(os.getenv("DOWNLOAD_TIMEOUT_SECONDS", "60.0"))
