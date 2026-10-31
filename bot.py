@@ -60,8 +60,16 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
 
 
 def build_application() -> Application:
-    """Construct and configure the Telegram Application instance."""
-    app = Application.builder().token(config.telegram_bot_token).build()
+    """Construct and configure the Telegram Application instance with extended timeouts for audio uploads."""
+    app = (
+        Application.builder()
+        .token(config.telegram_bot_token)
+        .read_timeout(60.0)
+        .write_timeout(180.0)
+        .connect_timeout(30.0)
+        .pool_timeout(60.0)
+        .build()
+    )
 
     # Command handlers
     app.add_handler(CommandHandler("start", start_command))

@@ -146,3 +146,16 @@ Traceback (most recent call last):
     keyboard.append([
     ^^^^^^^^
 UnboundLocalError: cannot access local variable 'keyboard' where it is not associated with a value
+2026-10-31 16:34:37 [INFO] telegram.ext.Application: Application is stopping. This might take a moment.
+2026-10-31 16:34:37 [INFO] telegram.ext.Application: Application.stop() complete
+2026-10-31 16:34:44 [INFO] ss_retro_bot: Starting SS Retro Bot...
+2026-10-31 16:34:44 [INFO] ss_retro_bot: Initializing database...
+2026-10-31 16:34:44 [INFO] database: Database schema initialized at D:\SS Retro Bot\data\bot.db
+2026-10-31 16:34:44 [INFO] ss_retro_bot: Active providers (6): YouTube Music, Internet Archive, iTunes, Jamendo, Spotify, MusicBrainz
+2026-10-31 16:34:44 [INFO] ss_retro_bot: Full audio delivery providers (3): YouTube Music, Internet Archive, Jamendo
+2026-10-31 16:34:44 [INFO] ss_retro_bot: Configuration validated. Initializing Telegram application...
+2026-10-31 16:34:44 [INFO] ss_retro_bot: Starting Telegram polling. Press Ctrl+C to terminate.
+2026-10-31 16:34:45 [INFO] telegram.ext.Application: Application started
+2026-10-31 16:35:20 [WARNING] services.providers.spotify: Spotify search HTTP 403
+2026-10-31 16:35:33 [INFO] services.telegram_delivery: Downloading track yt_4qyXO5UhNDQ from YouTube Music
+2026-10-31 16:36:09 [ERROR] services.telegram_delivery: Failed to send audio for track yt_4qyXO5UhNDQ to Telegram: Timed out

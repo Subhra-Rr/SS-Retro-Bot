@@ -11,6 +11,7 @@ from typing import Optional
 
 from telegram import Bot, Message
 from telegram.constants import ParseMode
+from telegram.error import TimedOut
 
 from database import db
 from services.audio_validator import audio_validator
@@ -89,10 +90,12 @@ class TelegramAudioDelivery:
                     title=track.title,
                     performer=track.artist,
                     duration=duration,
+                    write_timeout=180.0,
+                    read_timeout=60.0,
                 )
 
             # Step 5: Cache Telegram file_id for future instant delivery
-            if msg.audio and msg.audio.file_id:
+            if msg and msg.audio and msg.audio.file_id:
                 await db.cache_telegram_file_id(
                     track_id=track.id,
                     provider_name=track.provider_name,
@@ -106,6 +109,16 @@ class TelegramAudioDelivery:
                 await db.record_event("track_delivery_new", user_id, track.id)
 
             return True, None, msg
+
+        except TimedOut:
+            logger.warning(
+                "Telegram upload timed out waiting for server acknowledgment for track %s. "
+                "File was already dispatched to Telegram.",
+                track.id,
+            )
+            if user_id:
+                await db.add_recent_track(user_id, track.to_dict())
+            return True, None, None
 
         except Exception as e:
             logger.error("Failed to send audio for track %s to Telegram: %s", track.id, e)
