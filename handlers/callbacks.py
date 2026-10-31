@@ -214,7 +214,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         if track.genre:
             card_lines.append(f"🏷 <b>Genre:</b> {escape_html(track.genre)}")
 
-        if track.duration and track.duration > 7500:
+        if track.duration and track.duration > 7200:
             card_lines.append(f"\n⚠️ <b>Continuous compilation ({duration_str}). Exceeds Telegram's 50MB bot limit.</b>")
         else:
             card_lines.append("\n✅ <b>Complete audio track is ready for download.</b>")
@@ -258,11 +258,11 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             await safe_answer_callback(query, "Could not find track information.", show_alert=True)
             return
 
-        if track.duration and track.duration > 7500:
+        if track.duration and track.duration > 7200:
             dur_mins = track.duration // 60
             await safe_answer_callback(
                 query,
-                f"This mix is {dur_mins}m long and exceeds Telegram's 50MB file size limit. Please select an individual song.",
+                f"This compilation is {dur_mins}m long and exceeds Telegram's 50MB file size limit. Please select an individual song.",
                 show_alert=True,
             )
             return
@@ -278,24 +278,36 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             pass
 
         try:
-            # If track has no direct full audio (e.g. from iTunes/Spotify), find matching stream
+            # If track has no direct full audio (e.g. from iTunes/Spotify), find matching stream on YouTube
             if not track.has_full_audio or not track.audio_url:
-                yt_provider = registry.get_provider("YouTube Music")
-                if yt_provider:
-                    cleaned_title = _clean_track_title(track.title)
-                    search_term = f"{cleaned_title} {track.artist}".strip()
-                    yt_results = await yt_provider.search(search_term, limit=1)
-                    if not yt_results and cleaned_title != track.title:
-                        yt_results = await yt_provider.search(cleaned_title, limit=1)
+                try:
+                    yt_provider = registry.get_provider("YouTube Music")
+                    if yt_provider:
+                        cleaned_title = _clean_track_title(track.title)
+                        search_term = f"{cleaned_title} {track.artist}".strip()
+                        yt_results = await yt_provider.search(search_term, limit=3)
+                        if not yt_results and cleaned_title != track.title:
+                            yt_results = await yt_provider.search(cleaned_title, limit=3)
 
-                    if yt_results:
-                        track.audio_url = yt_results[0].audio_url
-                        track.has_full_audio = True
-                        track.allow_redistribution = True
+                        if yt_results:
+                            matched = yt_results[0]
+                            track.audio_url = matched.audio_url
+                            track.has_full_audio = True
+                            track.allow_redistribution = True
+                            track.provider_name = "YouTube Music"
+                            if matched.duration:
+                                track.duration = matched.duration
+                except Exception as ex:
+                    logger.warning("Could not match stream on YouTube for %s: %s", track.title, ex)
 
             if not track.has_full_audio or not track.audio_url:
                 if status_msg:
-                    await safe_edit_message(status_msg, "❌ Could not locate an audio stream for this track.")
+                    await safe_edit_message(
+                        status_msg,
+                        f"❌ Could not find a stream for '<b>{escape_html(track.title)}</b>'. "
+                        "Try typing the song name directly to download from YouTube.",
+                        parse_mode=ParseMode.HTML,
+                    )
                 return
 
             success, err, msg = await audio_delivery.deliver_track(

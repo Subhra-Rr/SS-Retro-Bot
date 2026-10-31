@@ -461,6 +461,13 @@ class Database:
             await db.execute("DELETE FROM search_cache WHERE expires_at < ?", (now,))
             await db.commit()
 
+    async def clear_all_search_cache(self) -> None:
+        """Purge all search cache entries so users always get fresh, live search results."""
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("DELETE FROM search_cache")
+            await db.commit()
+            logger.info("Purged search cache database table.")
+
     async def record_event(
         self, event_name: str, user_id: int | None = None, details: str = ""
     ) -> None:

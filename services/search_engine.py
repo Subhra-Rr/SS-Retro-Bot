@@ -58,11 +58,11 @@ def _calculate_relevance(track: UnifiedTrack, query_tokens: List[str], full_quer
 
     # Boost authorized full audio tracks so users have direct access to music
     if track.has_full_audio:
-        score += 25.0
-
-    # Strong boost for YouTube Music direct full-track audio
-    if track.provider_name == "YouTube Music":
         score += 50.0
+
+    # Decisive top priority for YouTube Music: genuine live catalogue, full track & 320kbps MP3 delivery
+    if track.provider_name == "YouTube Music":
+        score += 300.0
 
     return score
 
@@ -86,8 +86,11 @@ def deduplicate_tracks(tracks: List[UnifiedTrack]) -> List[UnifiedTrack]:
             seen[key] = track
         else:
             existing = seen[key]
+            # Prioritize YouTube Music over auxiliary providers for the same track
+            if track.provider_name == "YouTube Music" and existing.provider_name != "YouTube Music":
+                seen[key] = track
             # Replace existing if current has full audio and existing does not
-            if track.has_full_audio and not existing.has_full_audio:
+            elif track.has_full_audio and not existing.has_full_audio:
                 seen[key] = track
 
     return list(seen.values())
@@ -161,12 +164,13 @@ class MusicSearchEngine:
             logger.warning("No providers are currently configured.")
             return []
 
-        # Execute searches concurrently
-        per_provider_limit = max(5, max_total_results // max(len(configured_providers), 1))
-        tasks = [
-            self._search_provider(provider, clean_query, per_provider_limit)
-            for provider in configured_providers
-        ]
+        # Execute searches concurrently — prioritize YouTube Music with rich quota for full coverage
+        tasks = []
+        for provider in configured_providers:
+            if provider.name == "YouTube Music":
+                tasks.append(self._search_provider(provider, clean_query, 15))
+            else:
+                tasks.append(self._search_provider(provider, clean_query, 3))
         provider_results = await asyncio.gather(*tasks, return_exceptions=True)
 
         aggregated: List[UnifiedTrack] = []

@@ -129,13 +129,14 @@ class TelegramAudioDelivery:
 
             return True, None, msg
 
-        except TimedOut:
+        except (TimedOut, asyncio.TimeoutError) as te:
             # Telegram client timed out waiting for acknowledgment, but the full file
             # was already dispatched to Telegram's backend servers which will finish delivering it.
             logger.warning(
-                "Telegram upload timed out waiting for server acknowledgment for track %s. "
-                "File was already dispatched to Telegram.",
+                "Telegram upload timed out waiting for server acknowledgment for track %s (%s). "
+                "File was already dispatched to Telegram servers.",
                 track.id,
+                te,
             )
             if user_id:
                 await db.add_recent_track(user_id, track.to_dict())
@@ -143,9 +144,9 @@ class TelegramAudioDelivery:
 
         except Exception as e:
             err_str = str(e).lower()
-            if "time" in err_str and "out" in err_str:
+            if "time" in err_str or "timedout" in err_str or "timeout" in err_str or "network" in err_str:
                 logger.warning(
-                    "Telegram upload timed out for track %s (%s). File was dispatched.",
+                    "Telegram upload connection timed out for track %s (%s). File was dispatched.",
                     track.id,
                     e,
                 )

@@ -83,7 +83,7 @@ class AudioDownloader:
         import yt_dlp
 
         # Check duration limit (Telegram Bot API hard limit is 50MB)
-        if duration and duration > 7500:  # > 2 hours 5 mins
+        if duration and duration > 7200:  # > 2 hours
             dur_min = duration // 60
             return (
                 None,

@@ -11,7 +11,13 @@ import logging
 import sys
 from pathlib import Path
 
-from telegram import BotCommand, Update
+from telegram import (
+    BotCommand,
+    BotCommandScopeAllPrivateChats,
+    BotCommandScopeDefault,
+    MenuButtonCommands,
+    Update,
+)
 from telegram.error import BadRequest, Conflict, NetworkError, TelegramError, TimedOut
 from telegram.ext import (
     Application,
@@ -93,10 +99,20 @@ async def post_init(application: Application) -> None:
         BotCommand("help", "Help & guide for using the bot"),
     ]
     try:
-        await application.bot.set_my_commands(commands)
-        logger.info("Telegram command menu registered: %s", [c.command for c in commands])
+        # Register commands for all private chats
+        await application.bot.set_my_commands(commands, scope=BotCommandScopeDefault())
+        await application.bot.set_my_commands(commands, scope=BotCommandScopeAllPrivateChats())
+        # Explicitly configure the chat menu button to display the commands list
+        await application.bot.set_chat_menu_button(menu_button=MenuButtonCommands())
+        logger.info("Telegram command menu & menu button registered: %s", [c.command for c in commands])
     except Exception as e:
         logger.warning("Could not set Telegram bot commands: %s", e)
+
+    # Purge stale search cache so users get fresh, live search results
+    try:
+        await db.clear_all_search_cache()
+    except Exception as e:
+        logger.debug("Could not purge search cache on startup: %s", e)
 
 
 def build_application() -> Application:

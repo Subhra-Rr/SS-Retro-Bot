@@ -6,7 +6,7 @@ Protected with safe callback acknowledgement and idempotent message editing.
 from __future__ import annotations
 
 import logging
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, MenuButtonCommands, Update
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
@@ -35,6 +35,16 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         language_code=user.language_code,
     )
     await db.record_event("start_command", user.id)
+
+    # Ensure native Telegram Menu Button (☰) is actively visible for this user
+    if update.effective_chat:
+        try:
+            await context.bot.set_chat_menu_button(
+                chat_id=update.effective_chat.id,
+                menu_button=MenuButtonCommands(),
+            )
+        except Exception:
+            pass
 
     name = escape_html(user.first_name or "Music Lover")
     welcome_text = (
