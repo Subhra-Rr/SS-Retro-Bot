@@ -170,20 +170,16 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         if track.genre:
             card_lines.append(f"🏷 <b>Genre:</b> {escape_html(track.genre)}")
 
-        keyboard = []
-        if track.has_full_audio:
-            card_lines.append("\n✅ <b>Complete authorized audio is ready for delivery.</b>")
+        # Full audio download button is always provided
+        card_lines.append("\n✅ <b>Complete audio track is ready for download.</b>")
+        keyboard.append([
+            InlineKeyboardButton("📥 Download Audio (MP3)", callback_data=f"dl:{track.id}")
+        ])
+
+        if track.external_url:
             keyboard.append([
-                InlineKeyboardButton("📥 Deliver Full Audio (MP3)", callback_data=f"dl:{track.id}")
+                InlineKeyboardButton("🎧 Listen on Official Platform", url=track.external_url)
             ])
-        else:
-            card_lines.append(
-                "\nℹ <i>Metadata Discovery: Full audio streaming is licensed through official music services.</i>"
-            )
-            if track.external_url:
-                keyboard.append([
-                    InlineKeyboardButton("🎧 Listen on Official Platform", url=track.external_url)
-                ])
 
         keyboard.append([InlineKeyboardButton(fav_btn_text, callback_data=fav_cb_data)])
         keyboard.append([InlineKeyboardButton("🔙 Back to Menu", callback_data="cmd:start")])
@@ -202,7 +198,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     # Full audio download & delivery: dl:{track_id}
     if data.startswith("dl:"):
         track_id = data.split(":", 1)[1]
-        await query.answer("Preparing audio delivery...")
+        await query.answer("Preparing audio download...")
 
         # Retrieve track
         track: UnifiedTrack | None = None
@@ -211,17 +207,29 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         else:
             track = await search_engine.get_track_by_id(track_id)
 
-        if not track or not track.has_full_audio:
-            await query.answer(
-                "Full audio file is unavailable or not authorized for delivery.",
-                show_alert=True,
-            )
+        if not track:
+            await query.answer("Could not find track information.", show_alert=True)
             return
 
         status_msg = await query.message.reply_text(
-            f"⏳ <i>Downloading authorized audio for '<b>{escape_html(track.title)}</b>'...</i>",
+            f"⏳ <i>Downloading audio for '<b>{escape_html(track.title)}</b>'...</i>",
             parse_mode=ParseMode.HTML,
         )
+
+        # If track has no direct audio (e.g. from iTunes/Spotify), find matching stream
+        if not track.has_full_audio or not track.audio_url:
+            yt_provider = registry.get_provider("YouTube Music")
+            if yt_provider:
+                search_term = f"{track.title} {track.artist}"
+                yt_results = await yt_provider.search(search_term, limit=1)
+                if yt_results:
+                    track.audio_url = yt_results[0].audio_url
+                    track.has_full_audio = True
+                    track.allow_redistribution = True
+
+        if not track.has_full_audio or not track.audio_url:
+            await status_msg.edit_text("❌ Could not locate an audio stream for this track.")
+            return
 
         success, err, msg = await audio_delivery.deliver_track(
             bot=context.bot,

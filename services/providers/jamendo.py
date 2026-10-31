@@ -25,7 +25,7 @@ class JamendoProvider(BaseMusicProvider):
     can_deliver_full_audio = True
 
     def __init__(self, client_id: str | None = None):
-        self.client_id = client_id or config.jamendo_client_id
+        self.client_id = config.jamendo_client_id if client_id is None else client_id
 
     def is_configured(self) -> bool:
         """Returns True if a valid client_id is configured."""

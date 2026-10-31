@@ -6,6 +6,7 @@ and manages temporary file lifecycles.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from pathlib import Path
@@ -75,6 +76,36 @@ class AudioDownloader:
         except Exception as e:
             logger.warning("Could not write ID3 tags to %s: %s", file_path.name, e)
 
+    def _sync_yt_download(self, url: str, output_path: Path) -> Optional[Path]:
+        """Download and extract audio using yt-dlp and ffmpeg."""
+        import yt_dlp
+
+        base_path = output_path.with_suffix("")
+        ydl_opts = {
+            "format": "bestaudio/best",
+            "outtmpl": str(base_path) + ".%(ext)s",
+            "postprocessors": [
+                {
+                    "key": "FFmpegExtractAudio",
+                    "preferredcodec": "mp3",
+                    "preferredquality": "192",
+                }
+            ],
+            "quiet": True,
+            "no_warnings": True,
+            "max_filesize": self.max_bytes,
+        }
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([url])
+            target_mp3 = base_path.with_suffix(".mp3")
+            if target_mp3.exists() and target_mp3.stat().st_size > 0:
+                return target_mp3
+            return None
+        except Exception as e:
+            logger.error("yt-dlp download error on %s: %s", url, e)
+            return None
+
     async def download_track(self, track: UnifiedTrack) -> tuple[Optional[Path], Optional[str]]:
         """
         Download complete audio track to temporary disk storage.
@@ -85,6 +116,21 @@ class AudioDownloader:
             return None, reason
 
         file_path = self._prepare_filepath(track)
+
+        # Handle YouTube Music / open audio streaming sources
+        if track.id.startswith("yt_") or track.provider_name == "YouTube Music":
+            try:
+                target_file = await asyncio.to_thread(
+                    self._sync_yt_download, track.audio_url, file_path
+                )
+                if not target_file:
+                    return None, "Failed to download and extract audio from stream."
+                self._tag_mp3(target_file, track)
+                return target_file, None
+            except Exception as e:
+                self.cleanup(file_path)
+                return None, f"Audio download failed: {e}"
+
         total_downloaded = 0
 
         try:

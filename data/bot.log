@@ -13,3 +13,98 @@
 2026-10-31 15:44:34 [INFO] database: Database schema initialized at D:\SS Retro Bot\data\bot.db
 2026-10-31 15:44:34 [INFO] ss_retro_bot: Active providers (5): Internet Archive, iTunes, Jamendo, Spotify, MusicBrainz
 2026-10-31 15:44:34 [INFO] ss_retro_bot: Full audio delivery providers (2): Internet Archive, Jamendo
+2026-10-31 15:48:49 [INFO] ss_retro_bot: Starting SS Retro Bot...
+2026-10-31 15:48:49 [INFO] ss_retro_bot: Initializing database...
+2026-10-31 15:48:49 [INFO] database: Database schema initialized at D:\SS Retro Bot\data\bot.db
+2026-10-31 15:48:49 [INFO] ss_retro_bot: Active providers (5): Internet Archive, iTunes, Jamendo, Spotify, MusicBrainz
+2026-10-31 15:48:49 [INFO] ss_retro_bot: Full audio delivery providers (2): Internet Archive, Jamendo
+2026-10-31 15:48:49 [INFO] ss_retro_bot: Configuration validated. Initializing Telegram application...
+2026-10-31 15:48:50 [INFO] ss_retro_bot: Starting Telegram polling. Press Ctrl+C to terminate.
+2026-10-31 15:48:51 [INFO] telegram.ext.Application: Application started
+2026-10-31 15:49:32 [WARNING] services.providers.spotify: Spotify search HTTP 403
+2026-10-31 16:02:17 [INFO] telegram.ext.Application: Application is stopping. This might take a moment.
+2026-10-31 16:02:17 [INFO] telegram.ext.Application: Application.stop() complete
+2026-10-31 16:02:36 [INFO] ss_retro_bot: Starting SS Retro Bot...
+2026-10-31 16:02:36 [INFO] ss_retro_bot: Initializing database...
+2026-10-31 16:02:36 [INFO] database: Database schema initialized at D:\SS Retro Bot\data\bot.db
+2026-10-31 16:02:36 [INFO] ss_retro_bot: Active providers (5): Internet Archive, iTunes, Jamendo, Spotify, MusicBrainz
+2026-10-31 16:02:36 [INFO] ss_retro_bot: Full audio delivery providers (2): Internet Archive, Jamendo
+2026-10-31 16:02:36 [INFO] ss_retro_bot: Configuration validated. Initializing Telegram application...
+2026-10-31 16:02:37 [INFO] ss_retro_bot: Starting Telegram polling. Press Ctrl+C to terminate.
+2026-10-31 16:02:38 [INFO] telegram.ext.Application: Application started
+2026-10-31 16:03:12 [ERROR] ss_retro_bot: Exception while handling an update: Message is not modified: specified new message content and reply markup are exactly the same as a current content and reply markup of the message
+Traceback (most recent call last):
+  File "D:\SS Retro Bot\.venv\Lib\site-packages\telegram\ext\_application.py", line 1315, in process_update
+    await coroutine
+  File "D:\SS Retro Bot\.venv\Lib\site-packages\telegram\ext\_handlers\basehandler.py", line 159, in handle_update
+    return await self.callback(update, context)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\SS Retro Bot\handlers\callbacks.py", line 87, in handle_callback_query
+    await top_command(update, context)
+  File "D:\SS Retro Bot\handlers\commands.py", line 159, in top_command
+    await status_msg.edit_text(
+    ...<3 lines>...
+    )
+  File "D:\SS Retro Bot\.venv\Lib\site-packages\telegram\_message.py", line 4473, in edit_text
+    return await self.get_bot().edit_message_text(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<15 lines>...
+    )
+    ^
+  File "D:\SS Retro Bot\.venv\Lib\site-packages\telegram\ext\_extbot.py", line 1763, in edit_message_text
+    return await super().edit_message_text(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<15 lines>...
+    )
+    ^
+  File "D:\SS Retro Bot\.venv\Lib\site-packages\telegram\_bot.py", line 4465, in edit_message_text
+    return await self._send_message(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<11 lines>...
+    )
+    ^
+  File "D:\SS Retro Bot\.venv\Lib\site-packages\telegram\ext\_extbot.py", line 638, in _send_message
+    result = await super()._send_message(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<23 lines>...
+    )
+    ^
+  File "D:\SS Retro Bot\.venv\Lib\site-packages\telegram\_bot.py", line 828, in _send_message
+    result = await self._post(
+             ^^^^^^^^^^^^^^^^^
+    ...<7 lines>...
+    )
+    ^
+  File "D:\SS Retro Bot\.venv\Lib\site-packages\telegram\_bot.py", line 712, in _post
+    return await self._do_post(
+           ^^^^^^^^^^^^^^^^^^^^
+    ...<6 lines>...
+    )
+    ^
+  File "D:\SS Retro Bot\.venv\Lib\site-packages\telegram\ext\_extbot.py", line 378, in _do_post
+    return await super()._do_post(
+           ^^^^^^^^^^^^^^^^^^^^^^^
+    ...<6 lines>...
+    )
+    ^
+  File "D:\SS Retro Bot\.venv\Lib\site-packages\telegram\_bot.py", line 741, in _do_post
+    result = await request.post(
+             ^^^^^^^^^^^^^^^^^^^
+    ...<6 lines>...
+    )
+    ^
+  File "D:\SS Retro Bot\.venv\Lib\site-packages\telegram\request\_baserequest.py", line 198, in post
+    result = await self._request_wrapper(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<7 lines>...
+    )
+    ^
+  File "D:\SS Retro Bot\.venv\Lib\site-packages\telegram\request\_baserequest.py", line 375, in _request_wrapper
+    raise exception
+telegram.error.BadRequest: Message is not modified: specified new message content and reply markup are exactly the same as a current content and reply markup of the message
+2026-10-31 16:03:32 [WARNING] services.providers.spotify: Spotify search HTTP 403
+2026-10-31 16:15:17 [INFO] ss_retro_bot: Starting SS Retro Bot...
+2026-10-31 16:15:17 [INFO] ss_retro_bot: Initializing database...
+2026-10-31 16:15:17 [INFO] database: Database schema initialized at D:\SS Retro Bot\data\bot.db
+2026-10-31 16:15:17 [INFO] ss_retro_bot: Active providers (6): YouTube Music, Internet Archive, iTunes, Jamendo, Spotify, MusicBrainz
+2026-10-31 16:15:17 [INFO] ss_retro_bot: Full audio delivery providers (3): YouTube Music, Internet Archive, Jamendo

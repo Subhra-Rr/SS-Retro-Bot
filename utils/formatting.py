@@ -54,8 +54,7 @@ def format_track_summary(track: Dict[str, Any], index: int | None = None) -> str
     artist = escape_html(track.get("artist") or "Unknown Artist")
     duration = format_duration(track.get("duration"))
     provider = escape_html(track.get("provider_name") or "Music")
-    has_full_audio = track.get("has_full_audio", False)
-    badge = "🎵" if has_full_audio else "ℹ"
+    badge = "🎵"
 
     prefix = f"<b>{index}.</b> " if index is not None else ""
     return f"{prefix}{badge} <b>{title}</b> — <i>{artist}</i> <code>[{duration}]</code> ({provider})"

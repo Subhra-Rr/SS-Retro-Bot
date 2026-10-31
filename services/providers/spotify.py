@@ -30,8 +30,8 @@ class SpotifyProvider(BaseMusicProvider):
     can_deliver_full_audio = False
 
     def __init__(self, client_id: str | None = None, client_secret: str | None = None):
-        self.client_id = client_id or config.spotify_client_id
-        self.client_secret = client_secret or config.spotify_client_secret
+        self.client_id = config.spotify_client_id if client_id is None else client_id
+        self.client_secret = config.spotify_client_secret if client_secret is None else client_secret
         self._access_token: Optional[str] = None
         self._token_expires_at: float = 0.0
 

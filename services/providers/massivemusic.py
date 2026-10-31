@@ -37,8 +37,8 @@ class MassiveMusicProvider(BaseMusicProvider):
     can_deliver_full_audio = False  # B2B encrypted or licensed stream depending on commercial tier
 
     def __init__(self, api_key: str | None = None, api_secret: str | None = None):
-        self.api_key = api_key or config.massivemusic_api_key
-        self.api_secret = api_secret or config.massivemusic_api_secret
+        self.api_key = config.massivemusic_api_key if api_key is None else api_key
+        self.api_secret = config.massivemusic_api_secret if api_secret is None else api_secret
 
     def is_configured(self) -> bool:
         """Check if 7digital / MassiveMusic consumer credentials are provided."""

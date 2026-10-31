@@ -185,7 +185,11 @@ class MusicSearchEngine:
     async def get_track_by_id(self, track_id: str) -> Optional[UnifiedTrack]:
         """Fetch track details by checking providers."""
         # Check providers matching prefix
-        if track_id.startswith("jamendo_"):
+        if track_id.startswith("yt_"):
+            p = self.registry.get_provider("YouTube Music")
+            if p:
+                return await p.get_track(track_id)
+        elif track_id.startswith("jamendo_"):
             p = self.registry.get_provider("Jamendo")
             if p:
                 return await p.get_track(track_id)

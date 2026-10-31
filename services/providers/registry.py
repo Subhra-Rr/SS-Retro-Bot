@@ -15,6 +15,7 @@ from services.providers.jamendo import JamendoProvider
 from services.providers.massivemusic import MassiveMusicProvider
 from services.providers.musicbrainz import MusicBrainzProvider
 from services.providers.spotify import SpotifyProvider
+from services.providers.youtube_music import YouTubeMusicProvider
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,7 @@ class ProviderRegistry:
     def _register_default_providers(self) -> None:
         """Instantiate and register all known provider adapters."""
         defaults = [
+            YouTubeMusicProvider(),
             InternetArchiveProvider(),
             ITunesProvider(),
             JamendoProvider(),

@@ -4,3 +4,4 @@ python-dotenv>=1.0.0,<2.0
 mutagen>=1.47.0,<2.0
 aiosqlite>=0.20.0
 pytest>=8.0.0,<10.0
+yt-dlp>=2024.0.0
