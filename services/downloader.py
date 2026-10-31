@@ -76,9 +76,37 @@ class AudioDownloader:
         except Exception as e:
             logger.warning("Could not write ID3 tags to %s: %s", file_path.name, e)
 
-    def _sync_yt_download(self, url: str, output_path: Path) -> Optional[Path]:
-        """Download and extract audio using yt-dlp and ffmpeg."""
+    def _sync_yt_download(
+        self, url: str, output_path: Path, duration: Optional[int] = None
+    ) -> tuple[Optional[Path], Optional[str]]:
+        """Download and extract audio using yt-dlp and ffmpeg with dynamic bitrate scaling."""
         import yt_dlp
+
+        # Check duration limit (Telegram Bot API hard limit is 50MB)
+        if duration and duration > 7500:  # > 2 hours 5 mins
+            dur_min = duration // 60
+            return (
+                None,
+                f"This continuous compilation is {dur_min} minutes long, which exceeds Telegram's 50MB upload limit. "
+                "Please choose an individual song track for MP3 delivery.",
+            )
+
+        # Dynamic bitrate scaling to ensure the converted MP3 stays within Telegram's 49MB upload ceiling
+        # 45MB = 368,640 kilobits
+        if duration and duration > 0:
+            calculated_kbps = int(360000 / duration)
+            if calculated_kbps >= 320:
+                chosen_quality = "320"
+            elif calculated_kbps >= 192:
+                chosen_quality = "192"
+            elif calculated_kbps >= 128:
+                chosen_quality = "128"
+            elif calculated_kbps >= 64:
+                chosen_quality = "64"
+            else:
+                chosen_quality = "48"
+        else:
+            chosen_quality = "320"
 
         base_path = output_path.with_suffix("")
         ydl_opts = {
@@ -88,23 +116,31 @@ class AudioDownloader:
                 {
                     "key": "FFmpegExtractAudio",
                     "preferredcodec": "mp3",
-                    "preferredquality": "192",
+                    "preferredquality": chosen_quality,
                 }
             ],
             "quiet": True,
             "no_warnings": True,
-            "max_filesize": self.max_bytes,
+            # No max_filesize constraint here so video container size does not prematurely abort audio streams
         }
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([url])
+
             target_mp3 = base_path.with_suffix(".mp3")
             if target_mp3.exists() and target_mp3.stat().st_size > 0:
-                return target_mp3
-            return None
+                file_size = target_mp3.stat().st_size
+                if file_size > self.max_bytes:
+                    target_mp3.unlink()
+                    return (
+                        None,
+                        "Audio file exceeds Telegram's 50MB upload limit. Please select a shorter track.",
+                    )
+                return target_mp3, None
+            return None, "Audio extraction did not produce a valid file."
         except Exception as e:
             logger.error("yt-dlp download error on %s: %s", url, e)
-            return None
+            return None, f"Audio extraction error: {e}"
 
     async def download_track(self, track: UnifiedTrack) -> tuple[Optional[Path], Optional[str]]:
         """
@@ -124,11 +160,11 @@ class AudioDownloader:
             or (track.audio_url and ("youtube.com" in track.audio_url or "youtu.be" in track.audio_url))
         ):
             try:
-                target_file = await asyncio.to_thread(
-                    self._sync_yt_download, track.audio_url, file_path
+                target_file, dl_err = await asyncio.to_thread(
+                    self._sync_yt_download, track.audio_url, file_path, track.duration
                 )
                 if not target_file:
-                    return None, "Failed to download and extract audio from stream."
+                    return None, dl_err or "Failed to download and extract audio from stream."
                 self._tag_mp3(target_file, track)
                 return target_file, None
             except Exception as e:

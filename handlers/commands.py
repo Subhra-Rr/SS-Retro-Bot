@@ -68,6 +68,9 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         ],
     ]
 
+    if config.is_admin(user.id):
+        keyboard.append([InlineKeyboardButton("🛡 Admin Control Panel", callback_data="cmd:admin")])
+
     if update.callback_query:
         await safe_answer_callback(update.callback_query)
         await safe_edit_message(
@@ -98,10 +101,11 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "• <code>/favorites</code> — Access your saved favorite tracks\n"
         "• <code>/settings</code> — Configure search preferences & page size\n"
         "• <code>/help</code> — Show this guide\n\n"
-        "🎧 <b>Full Audio Delivery Policy:</b>\n"
-        "• Full-length MP3 files (192–320 kbps) are delivered directly to your chat.\n"
-        "• All audio files are verified for genuine duration and quality.\n"
-        "• Supports Hindi, Odia, Punjabi, English & all international music catalog."
+        "🎧 <b>Real-World Music Features:</b>\n"
+        "• <b>Live Search:</b> Type any song name (Hindi, Bollywood, Odia, Punjabi, English, etc.) for instant matches.\n"
+        "• <b>YouTube Link Converter:</b> Paste any YouTube URL directly into the chat to convert video to high-fidelity MP3.\n"
+        "• <b>Crystal Clear Audio:</b> Full-length MP3 files (up to 320 kbps) delivered directly to Telegram.\n"
+        "• <b>Admin Tools:</b> <code>/users</code> to view registered users, <code>/broadcast</code> to send announcements."
     )
 
     if update.callback_query:
@@ -230,6 +234,69 @@ async def recent_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode=ParseMode.HTML,
         )
+
+
+async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /history command displaying user search and download records."""
+    user = update.effective_user
+    if not user:
+        return
+
+    recents = await db.get_recent_tracks(user.id, limit=6)
+    searches = await db.get_search_history(user.id, limit=6)
+
+    if not recents and not searches:
+        text = (
+            "🕒 <b>Your Search & Download Records:</b>\n\n"
+            "You have no search or download records yet.\n"
+            "Start searching for songs or paste a YouTube link to build your history!"
+        )
+        keyboard = [[InlineKeyboardButton("🔍 Search Music", switch_inline_query_current_chat="")]]
+        if update.callback_query:
+            await safe_answer_callback(update.callback_query)
+            await safe_edit_message(
+                update.callback_query, text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.HTML
+            )
+        elif update.message:
+            await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.HTML)
+        return
+
+    lines = ["🕒 <b>Your Search & Download Records:</b>\n"]
+    keyboard = []
+
+    if recents:
+        lines.append("🎧 <b>Recent Audio Downloads:</b>")
+        for idx, track in enumerate(recents, start=1):
+            lines.append(format_track_summary(track, index=idx))
+            track_id = track.get("id")
+            if track_id:
+                keyboard.append([
+                    InlineKeyboardButton(
+                        f"📥 {idx}. {track.get('title', 'Track')[:24]}",
+                        callback_data=f"track:{track_id}",
+                    )
+                ])
+    else:
+        lines.append("🎧 <b>Recent Audio Downloads:</b>\n<i>No downloads yet.</i>\n")
+
+    if searches:
+        lines.append("\n🔍 <b>Recent Searches:</b>")
+        for q in searches:
+            lines.append(f"• <i>{escape_html(q)}</i>")
+
+    keyboard.append([
+        InlineKeyboardButton("🔍 New Search", switch_inline_query_current_chat=""),
+        InlineKeyboardButton("🔙 Back to Menu", callback_data="cmd:start"),
+    ])
+
+    text = "\n".join(lines)
+    if update.callback_query:
+        await safe_answer_callback(update.callback_query)
+        await safe_edit_message(
+            update.callback_query, text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.HTML
+        )
+    elif update.message:
+        await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.HTML)
 
 
 async def favorites_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

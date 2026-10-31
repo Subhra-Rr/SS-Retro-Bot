@@ -58,7 +58,11 @@ def _calculate_relevance(track: UnifiedTrack, query_tokens: List[str], full_quer
 
     # Boost authorized full audio tracks so users have direct access to music
     if track.has_full_audio:
-        score += 10.0
+        score += 25.0
+
+    # Strong boost for YouTube Music direct full-track audio
+    if track.provider_name == "YouTube Music":
+        score += 50.0
 
     return score
 
@@ -126,6 +130,17 @@ class MusicSearchEngine:
         clean_query = query.strip()
         if not clean_query:
             return []
+
+        # Direct YouTube link detection & instant extraction
+        yt_provider = self.registry.get_provider("YouTube Music")
+        if yt_provider and hasattr(yt_provider, "is_youtube_url") and yt_provider.is_youtube_url(clean_query):
+            logger.info("Direct YouTube URL detected: %s", clean_query)
+            direct_track = await yt_provider.get_track_from_url(clean_query)
+            if direct_track:
+                if user_id:
+                    await db.add_search_history(user_id, f"YouTube: {direct_track.title}")
+                    await db.record_event("youtube_url_convert", user_id, clean_query)
+                return [direct_track]
 
         # Check search cache
         cache_key = hashlib.md5(f"search:{clean_query.lower()}".encode()).hexdigest()

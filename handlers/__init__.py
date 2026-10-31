@@ -1,10 +1,11 @@
 """Telegram handlers package."""
 
-from handlers.admin import admin_command
+from handlers.admin import admin_command, broadcast_command, users_command
 from handlers.callbacks import handle_callback_query
 from handlers.commands import (
     favorites_command,
     help_command,
+    history_command,
     recent_command,
     settings_command,
     start_command,
@@ -24,6 +25,7 @@ __all__ = [
     "help_command",
     "top_command",
     "recent_command",
+    "history_command",
     "favorites_command",
     "settings_command",
     "search_command",
@@ -34,4 +36,6 @@ __all__ = [
     "handle_callback_query",
     "inline_query_handler",
     "admin_command",
+    "users_command",
+    "broadcast_command",
 ]

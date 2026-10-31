@@ -1,13 +1,14 @@
 """
 YouTube Music & Audio Provider using yt-dlp.
 Enables universal music search across all languages (Hindi, Bollywood, Odia, Bengali,
-Punjabi, English, etc.) and supplies complete audio tracks for Telegram delivery.
+Punjabi, English, etc.) and direct YouTube URL-to-MP3 conversion for Telegram delivery.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from typing import Any, Dict, List, Optional
 
 import yt_dlp
@@ -16,6 +17,11 @@ from config import config
 from services.providers.base import BaseMusicProvider, UnifiedTrack
 
 logger = logging.getLogger(__name__)
+
+YOUTUBE_URL_PATTERN = re.compile(
+    r"(https?://)?(www\.|m\.|music\.)?(youtube\.com/(watch\?v=|shorts/|playlist\?|v/)|youtu\.be/)([a-zA-Z0-9_-]{11})",
+    re.IGNORECASE,
+)
 
 
 class YouTubeMusicProvider(BaseMusicProvider):
@@ -28,6 +34,17 @@ class YouTubeMusicProvider(BaseMusicProvider):
         """yt-dlp is locally installed and ready."""
         return True
 
+    def is_youtube_url(self, text: str) -> bool:
+        """Check if a string contains or is a valid YouTube URL."""
+        return bool(YOUTUBE_URL_PATTERN.search(text.strip()))
+
+    def extract_video_id(self, text: str) -> Optional[str]:
+        """Extract the 11-character video ID from a YouTube URL if present."""
+        match = YOUTUBE_URL_PATTERN.search(text.strip())
+        if match:
+            return match.group(5)
+        return None
+
     def _sync_search(self, query: str, limit: int) -> List[Dict[str, Any]]:
         """Synchronously execute fast flat search with yt-dlp."""
         ydl_opts = {
@@ -37,7 +54,7 @@ class YouTubeMusicProvider(BaseMusicProvider):
             "no_warnings": True,
             "skip_download": True,
         }
-        search_query = f"ytsearch{min(limit, 10)}:{query}"
+        search_query = f"ytsearch{min(limit, 15)}:{query}"
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(search_query, download=False)
@@ -49,20 +66,30 @@ class YouTubeMusicProvider(BaseMusicProvider):
             return []
 
     def _normalize_entry(self, entry: Dict[str, Any]) -> Optional[UnifiedTrack]:
-        """Convert yt-dlp flat entry into UnifiedTrack."""
+        """Convert yt-dlp flat entry into UnifiedTrack with clean metadata."""
         video_id = entry.get("id")
         if not video_id:
             return None
 
-        raw_title = entry.get("title") or "Unknown Title"
-        # Often title is in format "Artist - Title" or "Title | Official Video"
-        artist = entry.get("uploader") or entry.get("channel") or "Artist"
+        raw_title = (entry.get("title") or "Unknown Title").strip()
+        channel = (entry.get("uploader") or entry.get("channel") or "Artist").strip()
+        artist = channel
         title = raw_title
 
+        # Clean "Artist - Title" formats common in YouTube audio uploads
         if " - " in raw_title:
             parts = raw_title.split(" - ", 1)
             artist = parts[0].strip()
             title = parts[1].strip()
+        elif " | " in raw_title:
+            parts = raw_title.split(" | ", 1)
+            title = parts[0].strip()
+            artist = parts[1].strip()
+
+        # Clean brackets / official video noise from title
+        clean_title = re.sub(r"\(.*?official.*?\)", "", title, flags=re.IGNORECASE)
+        clean_title = re.sub(r"\[.*?official.*?\]", "", clean_title, flags=re.IGNORECASE)
+        clean_title = clean_title.strip() or title
 
         duration = entry.get("duration")
         cover_url = entry.get("thumbnail") or f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg"
@@ -71,15 +98,15 @@ class YouTubeMusicProvider(BaseMusicProvider):
         return UnifiedTrack(
             id=f"yt_{video_id}",
             provider_name=self.name,
-            title=title,
+            title=clean_title,
             artist=artist,
-            album="Single",
+            album="YouTube Audio",
             duration=int(duration) if duration else None,
             release_date=None,
             cover_url=cover_url,
             audio_url=audio_url,
             has_full_audio=True,
-            license_type="Audio Delivery",
+            license_type="YouTube Direct Audio",
             allow_redistribution=True,
             genre=None,
             language=None,
@@ -87,9 +114,9 @@ class YouTubeMusicProvider(BaseMusicProvider):
         )
 
     async def search(
-        self, query: str, limit: int = 10, offset: int = 0
+        self, query: str, limit: int = 15, offset: int = 0
     ) -> List[UnifiedTrack]:
-        """Asynchronously search tracks across global and Indian catalogues."""
+        """Asynchronously search tracks across YouTube's live music catalogue."""
         clean_query = query.strip()
         if not clean_query:
             return []
@@ -106,13 +133,24 @@ class YouTubeMusicProvider(BaseMusicProvider):
         """Fetch single track details by video ID."""
         clean_id = track_id.replace("yt_", "").strip()
         url = f"https://www.youtube.com/watch?v={clean_id}"
+        return await self.get_track_from_url(url)
+
+    async def get_track_from_url(self, url: str) -> Optional[UnifiedTrack]:
+        """Fetch track metadata directly from any YouTube URL (video, short, music link)."""
+        clean_url = url.strip()
 
         def _get_info():
-            ydl_opts = {"quiet": True, "no_warnings": True, "extract_flat": True}
+            ydl_opts = {
+                "quiet": True,
+                "no_warnings": True,
+                "extract_flat": True,
+                "skip_download": True,
+            }
             try:
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    return ydl.extract_info(url, download=False)
-            except Exception:
+                    return ydl.extract_info(clean_url, download=False)
+            except Exception as e:
+                logger.error("Failed to extract YouTube URL %s: %s", clean_url, e)
                 return None
 
         info = await asyncio.to_thread(_get_info)
@@ -121,5 +159,8 @@ class YouTubeMusicProvider(BaseMusicProvider):
         return None
 
     async def get_top_tracks(self, limit: int = 10) -> List[UnifiedTrack]:
-        """Fetch trending / top hits."""
-        return await self.search("top music hits", limit=limit)
+        """Fetch trending / top individual song hits, filtering out non-stop compilations."""
+        results = await self.search("popular songs official music video audio", limit=limit * 2)
+        # Prioritize genuine single song tracks (duration between 60s and 720s)
+        filtered = [t for t in results if not t.duration or (60 <= t.duration <= 720)]
+        return filtered[:limit] if filtered else results[:limit]

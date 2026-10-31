@@ -13,7 +13,9 @@ Inspired by the conversational simplicity and high-performance search of referen
 - **Universal Multi-Genre & Multi-Language Coverage**:
   - **Indian Music**: Hindi, Bollywood, Odia, Bengali, Punjabi, Telugu, Tamil, Malayalam, Kannada, Bhajans & Devotional.
   - **International**: Pop, Rock, Rap, Hip-Hop, Synthwave, Electronic, Classical, Instrumental, Remixes, Indie.
-- **Authorized Full Audio Delivery**: Delivers complete, genuine full-length MP3 files directly via Telegram's `sendAudio` with artwork, title, artist, album, and duration tags.
+- **YouTube Live Search & 320 kbps MP3 Audio Delivery**: Real-world open music search matching any song title or artist across Indian, Bollywood, Odia, Punjabi, and international catalogues with zero mock data.
+- **Direct YouTube URL Converter**: Paste any YouTube video, short, or music link to instantly extract and download high-fidelity 320 kbps MP3 audio.
+- **Admin Management & Live Announcements**: View all users who entered the bot (`/users`) and broadcast announcements to all users (`/broadcast <message>`).
 - **Telegram `file_id` Cache**: Delivered audio tracks are automatically indexed by Telegram `file_id`, enabling subsequent deliveries with zero server bandwidth and zero latency.
 - **Mutagen Audio Validation**: Inspects incoming audio streams for duration, bitrate, and corrupted headers, rejecting empty or oversized files (>49MB Telegram bot upload limit).
 - **Conversational & Inline Mode**: Type `@SSRetroBot <query>` anywhere on Telegram for instant track cards and sharing, or talk directly in private chat.
@@ -90,18 +92,24 @@ D:\SS Retro Bot/
 
 | Provider | Type | Full Audio Delivery | Redelivery Permission | Required Credentials | Status |
 | :--- | :--- | :---: | :---: | :--- | :--- |
-| **YouTube Music** | Audio Stream / Open Engine | **YES** | Audio Extraction (192kbps MP3) | None (via yt-dlp & FFmpeg) | **Active** |
-| **Internet Archive** | Open Audio / Archive | **YES** | Public Domain / CC | None (Open Public API) | **Active** |
-| **Apple iTunes** | Global Catalogue | **YES** (Linked Audio) | Full Audio Delivery via Auto-Link | None (Open Public API) | **Active** |
+| **YouTube Live & Links** | Open Live Engine | **YES** | 320 kbps High Quality MP3 | None (via yt-dlp & FFmpeg) | **Primary** |
+| **Apple iTunes** | Global Catalogue | **YES** (Auto-Stream) | 320 kbps MP3 Delivery | None (Open Public API) | **Active** |
 | **Jamendo** | CC Independent Music | **YES** | Creative Commons | `JAMENDO_CLIENT_ID` | **Active** |
+| **Internet Archive** | Open Audio / Archive | **YES** | Public Domain / CC | None (Open Public API) | **Active** |
 | **MusicBrainz** | Open Encyclopedia | No | Metadata Only | Compliant User-Agent | **Active** |
 | **Spotify Web API** | Commercial Streaming | No | Metadata Only | `SPOTIFY_CLIENT_ID` & `SECRET` | Optional |
-| **MassiveMusic / 7digital** | Commercial B2B | Licensed | Commercial Partner Tier | `MASSIVEMUSIC_API_KEY` & `SECRET`| Commercial Partner |
 
-### Audio Delivery Policy
-- When a track has authorized full audio (Jamendo, Archive.org open audio), the bot sends the complete file via Telegram's native `sendAudio`.
-- For commercial streaming providers (iTunes, Spotify, MusicBrainz), the bot displays complete track metadata, HD album art, and direct links to listen on authorized platforms, clearly explaining that full streaming is licensed through official music services.
-- **Never**: DRM bypass, stream ripping, preview padding, or unauthorized conversions.
+### Supported Commands
+- `/search <query>` — Search any song or artist directly across YouTube
+- `<YouTube Link>` — Paste any YouTube URL into the chat to convert directly to MP3
+- `/top` — Explore top trending tracks
+- `/recent` — View your recently delivered tracks
+- `/favorites` — Access your saved favorite tracks
+- `/settings` — Customize results per page & preferences
+- `/help` — Full user guide
+- `/users` — *(Admin Only)* View all users who entered the bot with usernames and IDs
+- `/broadcast <msg>` or `/announce <msg>` — *(Admin Only)* Broadcast announcement to all users
+- `/admin` — *(Admin Only)* Interactive admin control panel
 
 ---
 

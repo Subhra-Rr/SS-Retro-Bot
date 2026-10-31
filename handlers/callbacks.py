@@ -15,6 +15,7 @@ from telegram.ext import ContextTypes
 
 from config import config
 from database import db
+from handlers.admin import admin_command, users_command
 from handlers.commands import (
     favorites_command,
     help_command,
@@ -88,6 +89,9 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                     InlineKeyboardButton("ℹ Help & Guide", callback_data="cmd:help"),
                 ],
             ]
+            if config.is_admin(user.id):
+                keyboard.append([InlineKeyboardButton("🛡 Admin Control Panel", callback_data="cmd:admin")])
+
             await safe_edit_message(
                 query,
                 welcome_text,
@@ -104,6 +108,34 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             await favorites_command(update, context)
         elif cmd == "settings":
             await settings_command(update, context)
+        elif cmd == "admin":
+            await admin_command(update, context)
+        return
+
+    # Admin sub-actions (adm:users, adm:broadcast_help, adm:refresh)
+    if data.startswith("adm:"):
+        sub = data.split(":", 1)[1]
+        if sub == "users":
+            await users_command(update, context)
+        elif sub == "refresh":
+            await admin_command(update, context)
+        elif sub == "broadcast_help":
+            guide = (
+                "📢 <b>Admin Announcement / Broadcast System</b>\n\n"
+                "To send an announcement to all registered users who entered the bot, run:\n\n"
+                "<code>/broadcast &lt;your message&gt;</code>\n\n"
+                "<i>Example:</i>\n"
+                "<code>/broadcast Server update complete! Fast audio downloads are active.</code>"
+            )
+            await safe_answer_callback(query)
+            await safe_edit_message(
+                query,
+                guide,
+                reply_markup=InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("🔙 Back to Admin", callback_data="adm:refresh")]]
+                ),
+                parse_mode=ParseMode.HTML,
+            )
         return
 
     # Quick search shortcut
@@ -182,7 +214,10 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         if track.genre:
             card_lines.append(f"🏷 <b>Genre:</b> {escape_html(track.genre)}")
 
-        card_lines.append("\n✅ <b>Complete audio track is ready for download.</b>")
+        if track.duration and track.duration > 7500:
+            card_lines.append(f"\n⚠️ <b>Continuous compilation ({duration_str}). Exceeds Telegram's 50MB bot limit.</b>")
+        else:
+            card_lines.append("\n✅ <b>Complete audio track is ready for download.</b>")
         keyboard = [
             [InlineKeyboardButton("📥 Download Audio (MP3)", callback_data=f"dl:{track.id}")]
         ]
@@ -221,6 +256,15 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
 
         if not track:
             await safe_answer_callback(query, "Could not find track information.", show_alert=True)
+            return
+
+        if track.duration and track.duration > 7500:
+            dur_mins = track.duration // 60
+            await safe_answer_callback(
+                query,
+                f"This mix is {dur_mins}m long and exceeds Telegram's 50MB file size limit. Please select an individual song.",
+                show_alert=True,
+            )
             return
 
         status_msg = None

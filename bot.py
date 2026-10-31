@@ -11,7 +11,7 @@ import logging
 import sys
 from pathlib import Path
 
-from telegram import Update
+from telegram import BotCommand, Update
 from telegram.error import BadRequest, Conflict, NetworkError, TelegramError, TimedOut
 from telegram.ext import (
     Application,
@@ -29,9 +29,11 @@ from handlers import (
     admin_command,
     album_command,
     artist_command,
+    broadcast_command,
     favorites_command,
     handle_callback_query,
     help_command,
+    history_command,
     inline_query_handler,
     recent_command,
     search_command,
@@ -40,6 +42,7 @@ from handlers import (
     start_command,
     text_search_handler,
     top_command,
+    users_command,
 )
 from services.providers.registry import registry
 from utils.logging_config import setup_logging
@@ -81,6 +84,21 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
             pass
 
 
+async def post_init(application: Application) -> None:
+    """Register official Telegram command menu list on startup."""
+    commands = [
+        BotCommand("start", "Launch the bot & main menu"),
+        BotCommand("search", "Search for music by song name"),
+        BotCommand("history", "View your search & download records"),
+        BotCommand("help", "Help & guide for using the bot"),
+    ]
+    try:
+        await application.bot.set_my_commands(commands)
+        logger.info("Telegram command menu registered: %s", [c.command for c in commands])
+    except Exception as e:
+        logger.warning("Could not set Telegram bot commands: %s", e)
+
+
 def build_application() -> Application:
     """Construct and configure the Telegram Application instance with extended timeouts for audio uploads."""
     app = (
@@ -90,6 +108,7 @@ def build_application() -> Application:
         .write_timeout(180.0)
         .connect_timeout(30.0)
         .pool_timeout(60.0)
+        .post_init(post_init)
         .build()
     )
 
@@ -97,6 +116,7 @@ def build_application() -> Application:
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("search", search_command))
+    app.add_handler(CommandHandler("history", history_command))
     app.add_handler(CommandHandler("song", song_command))
     app.add_handler(CommandHandler("artist", artist_command))
     app.add_handler(CommandHandler("album", album_command))
@@ -105,6 +125,9 @@ def build_application() -> Application:
     app.add_handler(CommandHandler("favorites", favorites_command))
     app.add_handler(CommandHandler("settings", settings_command))
     app.add_handler(CommandHandler("admin", admin_command))
+    app.add_handler(CommandHandler("users", users_command))
+    app.add_handler(CommandHandler("broadcast", broadcast_command))
+    app.add_handler(CommandHandler("announce", broadcast_command))
 
     # Interactive callback query router
     app.add_handler(CallbackQueryHandler(handle_callback_query))

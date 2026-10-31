@@ -52,7 +52,7 @@ class Config:
         default_factory=lambda: float(os.getenv("SEARCH_TIMEOUT_SECONDS", "12.0"))
     )
     download_timeout_seconds: float = field(
-        default_factory=lambda: float(os.getenv("DOWNLOAD_TIMEOUT_SECONDS", "60.0"))
+        default_factory=lambda: float(os.getenv("DOWNLOAD_TIMEOUT_SECONDS", "120.0"))
     )
     cache_ttl_hours: int = field(
         default_factory=lambda: int(os.getenv("CACHE_TTL_HOURS", "24"))

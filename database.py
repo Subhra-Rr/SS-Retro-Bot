@@ -476,6 +476,29 @@ class Database:
             )
             await db.commit()
 
+    async def get_all_users(self, limit: int = 100) -> List[Dict[str, Any]]:
+        """Retrieve registered users sorted by most recent activity."""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                """
+                SELECT user_id, username, first_name, last_name, language_code, created_at, last_active
+                FROM users
+                ORDER BY last_active DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ) as cursor:
+                rows = await cursor.fetchall()
+                return [dict(r) for r in rows]
+
+    async def get_all_user_ids(self) -> List[int]:
+        """Retrieve all registered user IDs for broadcasts."""
+        async with aiosqlite.connect(self.db_path) as db:
+            async with db.execute("SELECT user_id FROM users ORDER BY user_id") as cursor:
+                rows = await cursor.fetchall()
+                return [r[0] for r in rows]
+
     async def get_analytics_summary(self) -> Dict[str, int]:
         """Retrieve overall usage counters."""
         async with aiosqlite.connect(self.db_path) as db:

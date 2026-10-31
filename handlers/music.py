@@ -150,6 +150,33 @@ async def execute_search(
             )
         return
 
+    # Direct YouTube link: present instant conversion card
+    is_direct_yt = len(tracks) == 1 and ("youtube.com" in cleaned_query.lower() or "youtu.be" in cleaned_query.lower())
+    if is_direct_yt:
+        track = tracks[0]
+        if context.user_data is not None:
+            context.user_data[f"selected:{track.id}"] = track.to_dict()
+
+        duration_str = format_duration(track.duration)
+        yt_card = (
+            "🎯 <b>YouTube Media Detected</b>\n\n"
+            f"🎵 <b>Title:</b> {escape_html(track.title)}\n"
+            f"👤 <b>Channel:</b> {escape_html(track.artist)}\n"
+            f"⏱ <b>Duration:</b> {duration_str}\n"
+            f"🔗 <a href=\"{track.external_url}\">Watch on YouTube</a>\n\n"
+            "🎧 <b>Audio:</b> Ready to convert to MP3 (192–320 kbps clear sound)"
+        )
+        keyboard = [
+            [InlineKeyboardButton("📥 Download Audio (MP3)", callback_data=f"dl:{track.id}")],
+            [InlineKeyboardButton("⭐ Add to Favorites", callback_data=f"fav_add:{track.id}")],
+            [InlineKeyboardButton("🔙 Main Menu", callback_data="cmd:start")],
+        ]
+        if status_msg:
+            await safe_edit_message(
+                status_msg, yt_card, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.HTML
+            )
+        return
+
     # Store query in user_data context for fast pagination
     query_hash = hashlib.md5(cleaned_query.lower().strip().encode()).hexdigest()[:10]
     if context.user_data is not None:
