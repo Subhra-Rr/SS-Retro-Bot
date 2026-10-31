@@ -38,7 +38,7 @@ def sanitize_filename(name: str, max_length: int = 100, default: str = "audio_tr
     return safe or default
 
 
-def sanitize_query(query: str, max_length: int = 150) -> str:
+def sanitize_query(query: str, max_length: int = 300) -> str:
     """Clean and constrain user search input to prevent injection or abuse."""
     if not query:
         return ""

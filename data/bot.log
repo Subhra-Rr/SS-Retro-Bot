@@ -459,3 +459,56 @@ NameError: name 'registry' is not defined
 2026-10-31 21:24:30 [INFO] services.telegram_delivery: Downloading track yt_wCvDMaBF7i4 from YouTube Music
 2026-10-31 21:25:05 [INFO] telegram.ext.Application: Application is stopping. This might take a moment.
 2026-10-31 21:25:05 [INFO] telegram.ext.Application: Application.stop() complete
+2026-10-31 21:52:56 [INFO] ss_retro_bot: Starting SS Retro Bot...
+2026-10-31 21:52:56 [INFO] ss_retro_bot: Initializing database...
+2026-10-31 21:52:56 [INFO] database: Database schema initialized at D:\SS Retro Bot\data\bot.db
+2026-10-31 21:52:56 [INFO] ss_retro_bot: Active providers (6): YouTube Music, Internet Archive, iTunes, Jamendo, Spotify, MusicBrainz
+2026-10-31 21:52:56 [INFO] ss_retro_bot: Full audio delivery providers (3): YouTube Music, Internet Archive, Jamendo
+2026-10-31 21:52:56 [INFO] ss_retro_bot: Configuration validated. Initializing Telegram application...
+2026-10-31 21:52:56 [INFO] ss_retro_bot: Starting Telegram polling. Press Ctrl+C to terminate.
+2026-10-31 21:52:58 [INFO] ss_retro_bot: Telegram command menu & menu button registered: ['start', 'search', 'history', 'help']
+2026-10-31 21:52:58 [INFO] database: Purged search cache database table.
+2026-10-31 21:52:58 [INFO] telegram.ext.Application: Application started
+2026-10-31 21:53:17 [WARNING] services.providers.spotify: Spotify search HTTP 403
+2026-10-31 22:02:29 [INFO] telegram.ext.Application: Application is stopping. This might take a moment.
+2026-10-31 22:02:29 [INFO] telegram.ext.Application: Application.stop() complete
+2026-10-31 22:06:07 [INFO] ss_retro_bot: Starting SS Retro Bot...
+2026-10-31 22:06:07 [INFO] ss_retro_bot: Initializing database...
+2026-10-31 22:06:07 [INFO] database: Database schema initialized at D:\SS Retro Bot\data\bot.db
+2026-10-31 22:06:07 [INFO] ss_retro_bot: Active providers (6): YouTube Music, Internet Archive, iTunes, Jamendo, Spotify, MusicBrainz
+2026-10-31 22:06:07 [INFO] ss_retro_bot: Full audio delivery providers (3): YouTube Music, Internet Archive, Jamendo
+2026-10-31 22:06:07 [INFO] ss_retro_bot: Configuration validated. Initializing Telegram application...
+2026-10-31 22:06:07 [INFO] ss_retro_bot: Starting Telegram polling. Press Ctrl+C to terminate.
+2026-10-31 22:06:11 [INFO] ss_retro_bot: Telegram command menu & menu button registered: ['start', 'search', 'history', 'help']
+2026-10-31 22:06:11 [INFO] database: Purged search cache database table.
+2026-10-31 22:06:11 [INFO] telegram.ext.Application: Application started
+2026-10-31 22:11:05 [INFO] services.search_engine: Direct YouTube URL detected: https://youtu.be/La4gIKzB5zk
+2026-10-31 22:11:08 [ERROR] ss_retro_bot: Exception while handling an update: name 'format_duration' is not defined
+Traceback (most recent call last):
+  File "D:\SS Retro Bot\.venv\Lib\site-packages\telegram\ext\_application.py", line 1315, in process_update
+    await coroutine
+  File "D:\SS Retro Bot\.venv\Lib\site-packages\telegram\ext\_handlers\basehandler.py", line 159, in handle_update
+    return await self.callback(update, context)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\SS Retro Bot\handlers\music.py", line 230, in text_search_handler
+    await execute_search(update, context, text)
+  File "D:\SS Retro Bot\handlers\music.py", line 160, in execute_search
+    duration_str = format_duration(track.duration)
+                   ^^^^^^^^^^^^^^^
+NameError: name 'format_duration' is not defined
+2026-10-31 22:44:30 [INFO] services.search_engine: Direct YouTube URL detected: https://youtu.be/yIzCBU0_LyY?si=OmR6RTLiEJYSNOn6
+2026-10-31 22:44:33 [ERROR] ss_retro_bot: Exception while handling an update: name 'format_duration' is not defined
+Traceback (most recent call last):
+  File "D:\SS Retro Bot\.venv\Lib\site-packages\telegram\ext\_application.py", line 1315, in process_update
+    await coroutine
+  File "D:\SS Retro Bot\.venv\Lib\site-packages\telegram\ext\_handlers\basehandler.py", line 159, in handle_update
+    return await self.callback(update, context)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\SS Retro Bot\handlers\music.py", line 230, in text_search_handler
+    await execute_search(update, context, text)
+  File "D:\SS Retro Bot\handlers\music.py", line 160, in execute_search
+    duration_str = format_duration(track.duration)
+                   ^^^^^^^^^^^^^^^
+NameError: name 'format_duration' is not defined
+2026-10-31 22:55:46 [INFO] telegram.ext.Application: Application is stopping. This might take a moment.
+2026-10-31 22:55:46 [INFO] telegram.ext.Application: Application.stop() complete

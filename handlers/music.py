@@ -16,7 +16,7 @@ from config import config
 from database import db
 from services.providers.base import UnifiedTrack
 from services.search_engine import search_engine
-from utils.formatting import escape_html, format_track_summary
+from utils.formatting import escape_html, format_duration, format_track_summary
 from utils.security import UserRateLimiter, sanitize_query
 from utils.telegram_helpers import safe_answer_callback, safe_edit_message
 

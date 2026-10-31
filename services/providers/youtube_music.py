@@ -36,13 +36,39 @@ class YouTubeMusicProvider(BaseMusicProvider):
 
     def is_youtube_url(self, text: str) -> bool:
         """Check if a string contains or is a valid YouTube URL."""
-        return bool(YOUTUBE_URL_PATTERN.search(text.strip()))
+        return self.extract_video_id(text) is not None
 
     def extract_video_id(self, text: str) -> Optional[str]:
-        """Extract the 11-character video ID from a YouTube URL if present."""
-        match = YOUTUBE_URL_PATTERN.search(text.strip())
-        if match:
-            return match.group(5)
+        """Extract the 11-character video ID from any YouTube URL format."""
+        if not text:
+            return None
+        raw = text.strip()
+        # 1. youtu.be/<id>
+        m = re.search(r"youtu\.be/([a-zA-Z0-9_-]{11})", raw)
+        if m:
+            return m.group(1)
+        # 2. shorts/<id>
+        m = re.search(r"shorts/([a-zA-Z0-9_-]{11})", raw)
+        if m:
+            return m.group(1)
+        # 3. watch?v=<id> via url parsing
+        try:
+            from urllib.parse import parse_qs, urlparse
+            parsed = urlparse(raw if "://" in raw else f"https://{raw}")
+            if "youtube.com" in parsed.netloc:
+                qs = parse_qs(parsed.query)
+                if "v" in qs and qs["v"]:
+                    return qs["v"][0]
+        except Exception:
+            pass
+        # 4. generic fallback (?v= or &v=)
+        m = re.search(r"[?&]v=([a-zA-Z0-9_-]{11})", raw)
+        if m:
+            return m.group(1)
+        # 5. /embed/<id> or /v/<id>
+        m = re.search(r"/(?:embed|v)/([a-zA-Z0-9_-]{11})", raw)
+        if m:
+            return m.group(1)
         return None
 
     def _sync_search(self, query: str, limit: int) -> List[Dict[str, Any]]:
@@ -137,7 +163,8 @@ class YouTubeMusicProvider(BaseMusicProvider):
 
     async def get_track_from_url(self, url: str) -> Optional[UnifiedTrack]:
         """Fetch track metadata directly from any YouTube URL (video, short, music link)."""
-        clean_url = url.strip()
+        video_id = self.extract_video_id(url)
+        clean_url = f"https://www.youtube.com/watch?v={video_id}" if video_id else url.strip()
 
         def _get_info():
             ydl_opts = {
