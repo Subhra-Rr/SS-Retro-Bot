@@ -177,6 +177,8 @@ async def startup_check() -> bool:
         len(audio_providers),
         ", ".join(p.name for p in audio_providers),
     )
+    if config.has_telegram_api_credentials:
+        logger.info("Telegram API credentials configured (API ID: %s)", config.telegram_api_id)
     return True
 
 

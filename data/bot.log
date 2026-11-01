@@ -554,3 +554,22 @@ NameError: name 'format_duration' is not defined
 2026-10-31 23:38:55 [WARNING] services.providers.spotify: Spotify search HTTP 403
 2026-10-31 23:42:08 [INFO] telegram.ext.Application: Application is stopping. This might take a moment.
 2026-10-31 23:42:08 [INFO] telegram.ext.Application: Application.stop() complete
+2026-11-01 10:39:13 [INFO] ss_retro_bot: Starting SS Retro Bot...
+2026-11-01 10:39:13 [INFO] ss_retro_bot: Initializing database...
+2026-11-01 10:39:13 [INFO] database: Database schema initialized at D:\SS Retro Bot\data\bot.db
+2026-11-01 10:39:13 [INFO] ss_retro_bot: Active providers (6): YouTube Music, Internet Archive, iTunes, Jamendo, Spotify, MusicBrainz
+2026-11-01 10:39:13 [INFO] ss_retro_bot: Full audio delivery providers (3): YouTube Music, Internet Archive, Jamendo
+2026-11-01 10:39:13 [INFO] ss_retro_bot: Configuration validated. Initializing Telegram application...
+2026-11-01 10:39:13 [INFO] ss_retro_bot: Starting Telegram polling. Press Ctrl+C to terminate.
+2026-11-01 10:39:15 [INFO] ss_retro_bot: Telegram command menu & menu button registered: ['start', 'search', 'history', 'help']
+2026-11-01 10:39:15 [INFO] database: Purged search cache database table.
+2026-11-01 10:39:15 [INFO] telegram.ext.Application: Application started
+2026-11-01 10:39:54 [WARNING] services.providers.spotify: Spotify search HTTP 403
+2026-11-01 10:40:00 [WARNING] services.search_engine: Provider [Internet Archive] timed out on query 'matushka ultrafunk'
+2026-11-01 10:40:14 [INFO] services.telegram_delivery: Downloading track yt_7sGWS8IjpEY from YouTube Music
+2026-11-01 10:49:21 [WARNING] services.providers.spotify: Spotify search HTTP 403
+2026-11-01 10:49:53 [INFO] services.telegram_delivery: Downloading track yt_s1o8G4CFClU from YouTube Music
+2026-11-01 10:53:14 [WARNING] services.telegram_delivery: Telegram upload timed out waiting for server acknowledgment for track yt_s1o8G4CFClU (Timed out). File was already dispatched to Telegram servers.
+2026-11-01 10:53:49 [INFO] services.telegram_delivery: Downloading track yt_s1o8G4CFClU from YouTube Music
+2026-11-01 10:59:54 [INFO] telegram.ext.Application: Application is stopping. This might take a moment.
+2026-11-01 10:59:54 [INFO] telegram.ext.Application: Application.stop() complete

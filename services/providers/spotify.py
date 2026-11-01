@@ -61,7 +61,7 @@ class SpotifyProvider(BaseMusicProvider):
         try:
             response = await client.post(TOKEN_URL, headers=headers, data=data)
             if response.status_code != 200:
-                logger.warning("Spotify token request failed with status %s", response.status_code)
+                logger.debug("Spotify token request failed with status %s", response.status_code)
                 return None
 
             payload = response.json()
@@ -137,7 +137,9 @@ class SpotifyProvider(BaseMusicProvider):
 
                 response = await client.get(SEARCH_URL, headers=headers, params=params)
                 if response.status_code != 200:
-                    logger.warning("Spotify search HTTP %s", response.status_code)
+                    logger.debug("Spotify search HTTP %s", response.status_code)
+                    if response.status_code in (401, 403):
+                        self._access_token = None
                     return []
 
                 items = response.json().get("tracks", {}).get("items", [])

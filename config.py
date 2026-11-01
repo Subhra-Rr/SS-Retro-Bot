@@ -28,6 +28,17 @@ class Config:
     telegram_bot_token: str = field(
         default_factory=lambda: os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
     )
+    telegram_api_id: str = field(
+        default_factory=lambda: (os.getenv("TELEGRAM_API_ID") or os.getenv("API_ID", "")).strip()
+    )
+    telegram_api_hash: str = field(
+        default_factory=lambda: (
+            os.getenv("TELEGRAM_API_HASH")
+            or os.getenv("API_HASH")
+            or os.getenv("TELEGRAM_API_SECRET")
+            or os.getenv("API_SECRET", "")
+        ).strip()
+    )
     bot_username: str = field(
         default_factory=lambda: os.getenv("BOT_USERNAME", "SSRetroBot").strip().lstrip("@")
     )
@@ -95,6 +106,11 @@ class Config:
     def is_admin(self, user_id: int) -> bool:
         """Check if user id has administrative privileges."""
         return user_id in self.admin_user_ids
+
+    @property
+    def has_telegram_api_credentials(self) -> bool:
+        """Check whether Telegram API ID and Hash/Secret are provided."""
+        return bool(self.telegram_api_id and self.telegram_api_hash)
 
     def validate(self, allow_placeholder_token: bool = False) -> tuple[bool, List[str]]:
         """
