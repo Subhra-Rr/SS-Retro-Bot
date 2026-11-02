@@ -72,6 +72,67 @@ class YouTubeMusicProvider(BaseMusicProvider):
             return m.group(1)
         return None
 
+    def is_playlist_url(self, text: str) -> bool:
+        """Check if a string contains or is a valid YouTube playlist URL."""
+        if not text:
+            return False
+        raw = text.strip().lower()
+        if "playlist?" in raw:
+            return self.extract_playlist_id(text) is not None
+        if "list=" in raw and "watch?v=" not in raw and "youtu.be" not in raw:
+            return self.extract_playlist_id(text) is not None
+        return False
+
+    def extract_playlist_id(self, text: str) -> Optional[str]:
+        """Extract the playlist ID from a YouTube playlist URL."""
+        if not text:
+            return None
+        raw = text.strip()
+        try:
+            parsed = urlparse(raw if "://" in raw else f"https://{raw}")
+            if "youtube.com" in parsed.netloc:
+                qs = parse_qs(parsed.query)
+                if "list" in qs and qs["list"]:
+                    return qs["list"][0]
+        except Exception:
+            pass
+        m = re.search(r"[?&]list=([a-zA-Z0-9_-]+)", raw)
+        if m:
+            return m.group(1)
+        return None
+
+    def _sync_extract_playlist(self, url: str, limit: int = 15) -> tuple[Optional[str], List[Dict[str, Any]]]:
+        """Extract playlist title and flat tracks."""
+        ydl_opts = {
+            "extract_flat": True,
+            "quiet": True,
+            "no_warnings": True,
+            "skip_download": True,
+            "playlistend": limit,
+        }
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+                if not info:
+                    return None, []
+                title = info.get("title") or "YouTube Playlist"
+                entries = info.get("entries") or []
+                return title, list(entries)
+        except Exception as e:
+            logger.warning("yt-dlp playlist extraction error on '%s': %s", url, e)
+            return None, []
+
+    async def get_playlist_tracks(self, url: str, limit: int = 15) -> tuple[Optional[str], List[UnifiedTrack]]:
+        """Asynchronously extract tracks from a YouTube playlist."""
+        clean_url = url.strip()
+        title, entries = await asyncio.to_thread(self._sync_extract_playlist, clean_url, limit)
+        tracks: List[UnifiedTrack] = []
+        for entry in entries:
+            t = self._normalize_entry(entry)
+            if t:
+                tracks.append(t)
+        return title, tracks
+
     def _sync_search(self, query: str, limit: int) -> List[Dict[str, Any]]:
         """Synchronously execute fast flat search with yt-dlp."""
         ydl_opts = {

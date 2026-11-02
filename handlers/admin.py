@@ -228,7 +228,7 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             success_count += 1
         except Exception as e:
             failed_count += 1
-            logger.warning("Could not deliver broadcast to user %s: %s", uid, e)
+            logger.debug("Could not deliver broadcast to user %s: %s", uid, e)
 
     await safe_edit_message(
         status_msg,

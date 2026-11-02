@@ -1,0 +1,40 @@
+# Environment and secrets (NEVER bake .env into Docker image)
+.env
+*.env
+!.env.example
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Python cache & artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Database files & local logs (persistent data created at runtime)
+*.db
+*.sqlite
+*.sqlite3
+data/*.db
+data/*.log
+data/temp_downloads/*
+!data/temp_downloads/.gitkeep
+
+# Pytest & Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+tests/
+
+# Git & IDE metadata
+.git/
+.github/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+scratch/

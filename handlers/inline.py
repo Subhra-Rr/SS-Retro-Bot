@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import logging
 from telegram import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
     InlineQueryResultArticle,
     InlineQueryResultCachedAudio,
     InputTextMessageContent,
@@ -15,6 +17,7 @@ from telegram import (
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
+from config import config
 from database import db
 from services.search_engine import search_engine
 from utils.formatting import escape_html, format_duration
@@ -65,12 +68,22 @@ async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             if track.external_url:
                 msg_content += f"\n🔗 <a href='{track.external_url}'>Listen / Explore</a>"
 
+            share_keyboard = InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton(
+                        "📥 Download Audio (MP3)",
+                        url=f"https://t.me/{config.bot_username}?start=dl_{track.id}",
+                    )
+                ]
+            ])
+
             results.append(
                 InlineQueryResultArticle(
                     id=f"inline_{track.id}_{idx}",
                     title=f"{track.title} - {track.artist}",
                     description=description,
                     thumbnail_url=track.cover_url,
+                    reply_markup=share_keyboard,
                     input_message_content=InputTextMessageContent(
                         msg_content,
                         parse_mode=ParseMode.HTML,

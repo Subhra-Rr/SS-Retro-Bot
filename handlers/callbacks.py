@@ -17,6 +17,7 @@ from config import config
 from database import db
 from handlers.admin import admin_command, users_command
 from handlers.commands import (
+    charts_command,
     favorites_command,
     help_command,
     recent_command,
@@ -24,6 +25,9 @@ from handlers.commands import (
     top_command,
 )
 from handlers.music import build_search_view, execute_search
+from services.audio_effects import EFFECT_PRESETS, audio_effects_engine
+from services.downloader import audio_downloader
+from services.lyrics_engine import lyrics_engine
 from services.providers.base import UnifiedTrack
 from services.providers.registry import registry
 from services.search_engine import search_engine
@@ -74,6 +78,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 [
                     InlineKeyboardButton("🔍 Search Music", switch_inline_query_current_chat=""),
                     InlineKeyboardButton("🔥 Top Hits", callback_data="cmd:top"),
+                    InlineKeyboardButton("📈 Charts", callback_data="cmd:charts"),
                 ],
                 [
                     InlineKeyboardButton("⭐ Favorites", callback_data="cmd:favorites"),
@@ -102,6 +107,8 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             await help_command(update, context)
         elif cmd == "top":
             await top_command(update, context)
+        elif cmd == "charts":
+            await charts_command(update, context)
         elif cmd == "recent":
             await recent_command(update, context)
         elif cmd == "favorites":
@@ -218,8 +225,14 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             card_lines.append(f"\n⚠️ <b>Continuous compilation ({duration_str}). Exceeds Telegram's 50MB bot limit.</b>")
         else:
             card_lines.append("\n✅ <b>Complete audio track is ready for download.</b>")
+        genius_url = lyrics_engine.get_genius_url(track.title, track.artist)
         keyboard = [
-            [InlineKeyboardButton("📥 Download Audio (MP3)", callback_data=f"dl:{track.id}")]
+            [InlineKeyboardButton("📥 Download (320 kbps MP3)", callback_data=f"dl:{track.id}")],
+            [
+                InlineKeyboardButton("📜 Lyrics (Genius.com)", url=genius_url),
+                InlineKeyboardButton("🎛️ Audio FX Studio", callback_data=f"fx_menu:{track.id}"),
+            ],
+            [InlineKeyboardButton("📜 Read Lyrics in Chat", callback_data=f"lyrics:{track.id}")],
         ]
 
         if track.external_url:
@@ -338,6 +351,236 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 text=f"❌ <b>Download notice:</b> {escape_html(str(e))}",
                 parse_mode=ParseMode.HTML,
             )
+        return
+
+    # Audio FX Studio menu: fx_menu:{track_id}
+    if data.startswith("fx_menu:"):
+        track_id = data.split(":", 1)[1]
+        await safe_answer_callback(query, "Loading Audio FX Studio...")
+
+        track: UnifiedTrack | None = None
+        if context.user_data and f"selected:{track_id}" in context.user_data:
+            track = UnifiedTrack.from_dict(context.user_data[f"selected:{track_id}"])
+        else:
+            track = await search_engine.get_track_by_id(track_id)
+
+        if not track:
+            await safe_answer_callback(query, "Could not locate track.", show_alert=True)
+            return
+
+        fx_text = (
+            f"🎛️ <b>Audio FX Studio — Studio Acoustic Enhancements</b>\n\n"
+            f"🎵 <b>{escape_html(track.title)}</b>\n"
+            f"👤 <i>{escape_html(track.artist)}</i>\n\n"
+            f"Choose an acoustic modification to render:\n"
+            f"• 🌙 <b>Slowed + Reverb</b>: Chill tempo with atmospheric reverb\n"
+            f"• 🔊 <b>Bass Boosted</b>: +8dB punchy sub-bass for car/headphones\n"
+            f"• 🎧 <b>8D Surround</b>: 360° binaural audio rotating between ears\n"
+            f"• ⚡ <b>Nightcore</b>: Fast-tempo (+125%) energetic party pitch"
+        )
+        keyboard = [
+            [
+                InlineKeyboardButton("🌙 Slowed + Reverb", callback_data=f"fx_apply:slowed:{track.id}"),
+                InlineKeyboardButton("🔊 Bass Boost (+8dB)", callback_data=f"fx_apply:bass:{track.id}"),
+            ],
+            [
+                InlineKeyboardButton("🎧 8D Surround Audio", callback_data=f"fx_apply:8d:{track.id}"),
+                InlineKeyboardButton("⚡ Nightcore (Speed Up)", callback_data=f"fx_apply:nightcore:{track.id}"),
+            ],
+            [InlineKeyboardButton("🔙 Back to Track", callback_data=f"track:{track.id}")],
+        ]
+        await safe_edit_message(
+            query,
+            fx_text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    # Audio FX Processing & Delivery: fx_apply:{effect_type}:{track_id}
+    if data.startswith("fx_apply:"):
+        parts = data.split(":", 2)
+        if len(parts) != 3:
+            return
+        effect_type, track_id = parts[1], parts[2]
+        preset = EFFECT_PRESETS.get(effect_type)
+        if not preset:
+            await safe_answer_callback(query, "Unknown effect preset.", show_alert=True)
+            return
+
+        await safe_answer_callback(query, f"Applying {preset['name']}...")
+
+        track = None
+        if context.user_data and f"selected:{track_id}" in context.user_data:
+            track = UnifiedTrack.from_dict(context.user_data[f"selected:{track_id}"])
+        else:
+            track = await search_engine.get_track_by_id(track_id)
+
+        if not track:
+            await safe_answer_callback(query, "Could not find track information.", show_alert=True)
+            return
+
+        # Check cached Telegram file_id
+        cache_provider_key = f"AudioFX:{effect_type}"
+        cached_file_id = await db.get_cached_telegram_file_id(track.id, cache_provider_key)
+        if cached_file_id:
+            caption = (
+                f"{preset['emoji']} <b>{escape_html(track.title)}</b> <i>{preset['tag_suffix']}</i>\n"
+                f"👤 <b>Artist:</b> {escape_html(track.artist)}\n"
+                f"🎛️ <b>Effect:</b> <code>{preset['name']}</code> • 💎 <i>320 kbps Studio FX</i>"
+            )
+            try:
+                await context.bot.send_audio(
+                    chat_id=chat.id,
+                    audio=cached_file_id,
+                    caption=caption,
+                    parse_mode=ParseMode.HTML,
+                    title=f"{track.title} {preset['tag_suffix']}",
+                    performer=track.artist,
+                )
+                return
+            except Exception as e:
+                logger.debug("Failed sending cached effect audio: %s", e)
+
+        status_msg = await context.bot.send_message(
+            chat_id=chat.id,
+            text=(
+                f"🎛️ <i>Applying <b>{preset['name']}</b> studio filter...</i>\n"
+                f"⚡ ▰▰▰▰▰▰▰▰▱▱ <b>80%</b> • [320 KBPS • FFmpeg Studio]"
+            ),
+            parse_mode=ParseMode.HTML,
+        )
+
+        try:
+            # If track has no direct full audio (e.g. from iTunes/Spotify), find matching stream on YouTube
+            if not track.has_full_audio or not track.audio_url:
+                try:
+                    yt_provider = registry.get_provider("YouTube Music")
+                    if yt_provider:
+                        cleaned_title = _clean_track_title(track.title)
+                        search_term = f"{cleaned_title} {track.artist}".strip()
+                        yt_results = await yt_provider.search(search_term, limit=3)
+                        if not yt_results and cleaned_title != track.title:
+                            yt_results = await yt_provider.search(cleaned_title, limit=3)
+
+                        if yt_results:
+                            matched = yt_results[0]
+                            track.audio_url = matched.audio_url
+                            track.has_full_audio = True
+                            track.allow_redistribution = True
+                            track.provider_name = "YouTube Music"
+                            if matched.duration:
+                                track.duration = matched.duration
+                except Exception as ex:
+                    logger.warning("Could not match stream on YouTube for %s: %s", track.title, ex)
+
+            # Download base track
+            base_file, dl_err = await audio_downloader.download_track(track)
+            if not base_file:
+                await safe_delete_message(status_msg)
+                await context.bot.send_message(
+                    chat_id=chat.id,
+                    text=f"❌ <b>Effect notice:</b> {escape_html(dl_err or 'Could not download source track.')}",
+                    parse_mode=ParseMode.HTML,
+                )
+                return
+
+            # Apply FFmpeg filter
+            fx_file, fx_err = await audio_effects_engine.apply_effect(base_file, effect_type, track)
+            audio_downloader.cleanup(base_file)
+
+            if not fx_file:
+                await safe_delete_message(status_msg)
+                await context.bot.send_message(
+                    chat_id=chat.id,
+                    text=f"❌ <b>Effect error:</b> {escape_html(fx_err or 'Audio processing failed.')}",
+                    parse_mode=ParseMode.HTML,
+                )
+                return
+
+            caption = (
+                f"{preset['emoji']} <b>{escape_html(track.title)}</b> <i>{preset['tag_suffix']}</i>\n"
+                f"👤 <b>Artist:</b> {escape_html(track.artist)}\n"
+                f"🎛️ <b>Effect:</b> <code>{preset['name']}</code> • 💎 <i>320 kbps Studio FX</i>"
+            )
+            safe_name = f"{track.artist} - {track.title} {preset['tag_suffix']}.mp3"
+
+            try:
+                with open(fx_file, "rb") as af:
+                    msg = await context.bot.send_audio(
+                        chat_id=chat.id,
+                        audio=af,
+                        caption=caption,
+                        parse_mode=ParseMode.HTML,
+                        title=f"{track.title} {preset['tag_suffix']}",
+                        performer=track.artist,
+                        filename=safe_name,
+                        write_timeout=180.0,
+                        read_timeout=60.0,
+                    )
+                if msg and msg.audio and msg.audio.file_id:
+                    await db.cache_telegram_file_id(
+                        track_id=track.id,
+                        provider_name=cache_provider_key,
+                        telegram_file_id=msg.audio.file_id,
+                        file_size=fx_file.stat().st_size if fx_file.exists() else 0,
+                    )
+            finally:
+                audio_effects_engine.cleanup(fx_file)
+                await safe_delete_message(status_msg)
+
+        except Exception as e:
+            logger.error("Audio FX exception: %s", e)
+            await safe_delete_message(status_msg)
+            await context.bot.send_message(
+                chat_id=chat.id,
+                text=f"❌ <b>Effect notice:</b> {escape_html(str(e))}",
+                parse_mode=ParseMode.HTML,
+            )
+        return
+
+    # View Lyrics: lyrics:{track_id}
+    if data.startswith("lyrics:"):
+        track_id = data.split(":", 1)[1]
+        await safe_answer_callback(query, "Fetching lyrics...")
+
+        track = None
+        if context.user_data and f"selected:{track_id}" in context.user_data:
+            track = UnifiedTrack.from_dict(context.user_data[f"selected:{track_id}"])
+        else:
+            track = await search_engine.get_track_by_id(track_id)
+
+        if not track:
+            await safe_answer_callback(query, "Could not locate track.", show_alert=True)
+            return
+
+        genius_url = lyrics_engine.get_genius_url(track.title, track.artist)
+        lyrics_text = await lyrics_engine.get_lyrics(track.title, track.artist)
+        if not lyrics_text:
+            lyrics_text = (
+                f"📜 <b>Song Lyrics — {escape_html(track.title)}</b>\n"
+                f"👤 <i>{escape_html(track.artist)}</i>\n\n"
+                f"✨ <i>Tap the button below to view verified lyrics, English translations, and line-by-line annotations directly on <b>Genius.com</b>:</i>"
+            )
+            keyboard = [
+                [InlineKeyboardButton("📜 View Lyrics on Genius.com", url=genius_url)],
+                [InlineKeyboardButton("📥 Download Audio", callback_data=f"dl:{track.id}")],
+                [InlineKeyboardButton("🎛️ Audio FX Studio", callback_data=f"fx_menu:{track.id}")],
+                [InlineKeyboardButton("🔙 Back to Track", callback_data=f"track:{track.id}")],
+            ]
+        else:
+            keyboard = [
+                [InlineKeyboardButton("📜 Open on Genius.com", url=genius_url)],
+                [InlineKeyboardButton("📥 Download Audio", callback_data=f"dl:{track.id}")],
+                [InlineKeyboardButton("🎛️ Audio FX Studio", callback_data=f"fx_menu:{track.id}")],
+                [InlineKeyboardButton("🔙 Back to Track", callback_data=f"track:{track.id}")],
+            ]
+        await safe_edit_message(
+            query,
+            lyrics_text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode=ParseMode.HTML,
+        )
         return
 
     # Add to favorites: fav_add:{track_id}

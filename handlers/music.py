@@ -14,7 +14,9 @@ from telegram.ext import ContextTypes
 
 from config import config
 from database import db
+from services.lyrics_engine import lyrics_engine
 from services.providers.base import UnifiedTrack
+from services.providers.registry import registry
 from services.search_engine import search_engine
 from utils.formatting import escape_html, format_duration, format_track_summary
 from utils.security import UserRateLimiter, sanitize_query
@@ -126,6 +128,41 @@ async def execute_search(
         await safe_answer_callback(update.callback_query)
         status_msg = update.callback_query.message
 
+    # Check if input is a YouTube Playlist URL
+    try:
+        yt_provider = registry.get_provider("YouTube Music")
+        if yt_provider and hasattr(yt_provider, "is_playlist_url") and yt_provider.is_playlist_url(cleaned_query):
+            title, pl_tracks = await yt_provider.get_playlist_tracks(cleaned_query, limit=10)
+            if pl_tracks:
+                lines = [
+                    "📑 <b>YouTube Playlist Detected</b>\n",
+                    f"💿 <b>Playlist:</b> {escape_html(title or 'YouTube Playlist')}",
+                    f"📊 <b>Tracks:</b> Found {len(pl_tracks)} song(s)\n",
+                    "<i>Tap any song below to download MP3, apply Audio FX, or view lyrics:</i>\n",
+                ]
+                keyboard = []
+                for idx, track in enumerate(pl_tracks, start=1):
+                    if context.user_data is not None:
+                        context.user_data[f"selected:{track.id}"] = track.to_dict()
+                    lines.append(format_track_summary(track.to_dict(), index=idx))
+                    keyboard.append([
+                        InlineKeyboardButton(
+                            f"{idx}. {track.title[:24]}",
+                            callback_data=f"track:{track.id}",
+                        )
+                    ])
+                keyboard.append([InlineKeyboardButton("🔙 Main Menu", callback_data="cmd:start")])
+                if status_msg:
+                    await safe_edit_message(
+                        status_msg,
+                        "\n".join(lines),
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML,
+                    )
+                return
+    except Exception as pl_err:
+        logger.warning("Playlist parsing fallback to normal search: %s", pl_err)
+
     # Perform search
     tracks = await search_engine.search(cleaned_query, user_id=user.id)
 
@@ -166,9 +203,17 @@ async def execute_search(
             f"🔗 <a href=\"{track.external_url}\">Watch on YouTube</a>\n\n"
             "🎧 <b>Audio:</b> Ready to convert to MP3 (192–320 kbps clear sound)"
         )
+        genius_url = lyrics_engine.get_genius_url(track.title, track.artist)
         keyboard = [
             [InlineKeyboardButton("📥 Download Audio (MP3)", callback_data=f"dl:{track.id}")],
-            [InlineKeyboardButton("⭐ Add to Favorites", callback_data=f"fav_add:{track.id}")],
+            [
+                InlineKeyboardButton("📜 Lyrics (Genius.com)", url=genius_url),
+                InlineKeyboardButton("🎛️ Audio FX Studio", callback_data=f"fx_menu:{track.id}"),
+            ],
+            [
+                InlineKeyboardButton("📜 Read Lyrics in Chat", callback_data=f"lyrics:{track.id}"),
+                InlineKeyboardButton("⭐ Add to Favorites", callback_data=f"fav_add:{track.id}"),
+            ],
             [InlineKeyboardButton("🔙 Main Menu", callback_data="cmd:start")],
         ]
         if status_msg:
@@ -228,3 +273,64 @@ async def text_search_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     if text.startswith("/"):
         return  # Ignore commands handled elsewhere
     await execute_search(update, context, text)
+
+
+async def audio_message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Handle forwarded audio tracks or voice notes from users.
+    - Forwarded Audio: Extracts metadata tags (title, artist) and triggers search/download.
+    - Voice Notes: Offers musical assistance and guide to search by humming/lyrics.
+    """
+    if not update.message:
+        return
+
+    # 1. Forwarded or uploaded audio file
+    if update.message.audio:
+        audio = update.message.audio
+        query_parts = []
+        if audio.title:
+            query_parts.append(audio.title.strip())
+        if audio.performer:
+            query_parts.append(audio.performer.strip())
+
+        query = " ".join(query_parts).strip()
+        if not query and audio.file_name:
+            import re
+            name = re.sub(r"\.[a-zA-Z0-9]+$", "", audio.file_name)
+            query = name.replace("_", " ").replace("-", " ").strip()
+
+        if query:
+            await update.message.reply_text(
+                f"🎧 <b>Audio File Detected:</b> <i>{escape_html(query)}</i>\n"
+                f"🔍 <i>Searching for high-definition 320 kbps MP3 stream...</i>",
+                parse_mode=ParseMode.HTML,
+            )
+            await execute_search(update, context, query)
+            return
+        else:
+            await update.message.reply_text(
+                "🎧 <i>Audio track received! Type the song name or artist to find the 320 kbps studio release.</i>",
+                parse_mode=ParseMode.HTML,
+            )
+            return
+
+    # 2. Voice note
+    if update.message.voice:
+        voice_guide = (
+            "🎙️ <b>Voice Note / Melody Received!</b>\n\n"
+            "💡 <b>To find this song:</b>\n"
+            "• Type any lyrics or words you remember into the chat\n"
+            "• <i>Example:</i> <code>/search mere mehboob qayamat hogi</code>\n"
+            "• Or search by singer / movie: <code>/search Kishore Kumar</code>\n\n"
+            "🎧 <i>We'll find the exact 320 kbps studio MP3 for you instantly!</i>"
+        )
+        keyboard = [
+            [InlineKeyboardButton("🔍 Search Music", switch_inline_query_current_chat="")],
+            [InlineKeyboardButton("🔥 Top Hits", callback_data="cmd:top")],
+            [InlineKeyboardButton("🔙 Main Menu", callback_data="cmd:start")],
+        ]
+        await update.message.reply_text(
+            voice_guide,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode=ParseMode.HTML,
+        )

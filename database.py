@@ -135,7 +135,9 @@ class Database:
     async def init_db(self) -> None:
         """Create tables and indices if they do not exist."""
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        async with aiosqlite.connect(self.db_path) as db:
+        async with aiosqlite.connect(self.db_path, timeout=10.0) as db:
+            await db.execute("PRAGMA journal_mode=WAL;")
+            await db.execute("PRAGMA busy_timeout=10000;")
             for statement in SCHEMA_STATEMENTS:
                 await db.execute(statement)
             await db.commit()

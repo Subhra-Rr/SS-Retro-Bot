@@ -12,9 +12,10 @@ from telegram.ext import ContextTypes
 
 from config import config
 from database import db
+from services.lyrics_engine import lyrics_engine
 from services.providers.registry import registry
 from services.search_engine import search_engine
-from utils.formatting import escape_html, format_track_summary
+from utils.formatting import escape_html, format_duration, format_track_summary
 from utils.telegram_helpers import safe_answer_callback, safe_edit_message
 
 logger = logging.getLogger(__name__)
@@ -46,6 +47,57 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         except Exception:
             pass
 
+    # Check for deep-link track identifier (e.g. /start dl_yt_La4gIKzB5zk)
+    if context.args and isinstance(context.args, list) and len(context.args) > 0 and isinstance(context.args[0], str):
+        param = context.args[0].strip()
+        if param.startswith("dl_"):
+            track_id = param[3:].strip()
+            track = await search_engine.get_track_by_id(track_id)
+            if track:
+                if context.user_data is not None:
+                    context.user_data[f"selected:{track.id}"] = track.to_dict()
+
+                is_fav = await db.is_favorite(user.id, track.id)
+                fav_btn_text = "❌ Remove Favorite" if is_fav else "⭐ Add to Favorites"
+                fav_cb_data = f"fav_del:{track.id}" if is_fav else f"fav_add:{track.id}"
+                duration_str = format_duration(track.duration)
+
+                card_lines = [
+                    f"🎵 <b>{escape_html(track.title)}</b>",
+                    f"👤 <b>Artist:</b> {escape_html(track.artist)}",
+                    f"💿 <b>Album:</b> {escape_html(track.album or 'Single')}",
+                    f"⏱ <b>Duration:</b> {duration_str}",
+                    f"🌐 <b>Provider:</b> {escape_html(track.provider_name)}",
+                    f"⚖ <b>License:</b> <code>{escape_html(track.license_type or 'Authorized')}</code>",
+                ]
+                if track.release_date:
+                    card_lines.append(f"📅 <b>Released:</b> {escape_html(track.release_date)}")
+                if track.genre:
+                    card_lines.append(f"🏷 <b>Genre:</b> {escape_html(track.genre)}")
+                card_lines.append("\n✅ <b>Complete audio track is ready for download.</b>")
+
+                genius_url = lyrics_engine.get_genius_url(track.title, track.artist)
+                keyboard = [
+                    [InlineKeyboardButton("📥 Download (320 kbps MP3)", callback_data=f"dl:{track.id}")],
+                    [
+                        InlineKeyboardButton("📜 Lyrics (Genius.com)", url=genius_url),
+                        InlineKeyboardButton("🎛️ Audio FX Studio", callback_data=f"fx_menu:{track.id}"),
+                    ],
+                    [InlineKeyboardButton("📜 Read Lyrics in Chat", callback_data=f"lyrics:{track.id}")],
+                ]
+                if track.external_url:
+                    keyboard.append([InlineKeyboardButton("🎧 Listen on Official Platform", url=track.external_url)])
+                keyboard.append([InlineKeyboardButton(fav_btn_text, callback_data=fav_cb_data)])
+                keyboard.append([InlineKeyboardButton("🔙 Back to Menu", callback_data="cmd:start")])
+
+                if update.message:
+                    await update.message.reply_text(
+                        "\n".join(card_lines),
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode=ParseMode.HTML,
+                    )
+                    return
+
     name = escape_html(user.first_name or "Music Lover")
     welcome_text = (
         f"👋 <b>Welcome, {name}!</b>\n\n"
@@ -62,6 +114,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         [
             InlineKeyboardButton("🔍 Search Music", switch_inline_query_current_chat=""),
             InlineKeyboardButton("🔥 Top Hits", callback_data="cmd:top"),
+            InlineKeyboardButton("📈 Charts", callback_data="cmd:charts"),
         ],
         [
             InlineKeyboardButton("⭐ Favorites", callback_data="cmd:favorites"),
@@ -413,6 +466,56 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     elif update.message:
         await update.message.reply_text(
             text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode=ParseMode.HTML,
+        )
+
+
+async def charts_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /charts command presenting curated regional and global music charts."""
+    user = update.effective_user
+    if user:
+        await db.record_event("charts_command", user.id)
+
+    charts_text = (
+        "📈 <b>SS Retro Bot — Curated Music Charts</b> 🌟\n\n"
+        "Explore trending playlists and top musical charts across genres:\n\n"
+        "• 🇮🇳 <b>Bollywood Hot 10</b> — Trending Hindi cinema tracks\n"
+        "• 🌸 <b>Odia Superhits</b> — Modern hits & nostalgic Odia classics\n"
+        "• 💥 <b>Punjabi Hits</b> — High-energy beats & chartbusters\n"
+        "• 🌍 <b>Global Billboard</b> — Worldwide trending hits\n"
+        "• 📻 <b>90s Golden Retro</b> — Unforgettable evergreen melodies\n"
+        "• 🎸 <b>Rock & Indie Legends</b> — Guitar anthems & indie vibes\n\n"
+        "<i>Select a chart below to browse and download:</i>"
+    )
+
+    keyboard = [
+        [
+            InlineKeyboardButton("🇮🇳 Bollywood Hot 10", callback_data="qsearch:Bollywood Hits"),
+            InlineKeyboardButton("🌸 Odia Superhits", callback_data="qsearch:Odia Songs"),
+        ],
+        [
+            InlineKeyboardButton("💥 Punjabi Hits", callback_data="qsearch:Punjabi Hits"),
+            InlineKeyboardButton("🌍 Global Billboard", callback_data="qsearch:Billboard Hot 100"),
+        ],
+        [
+            InlineKeyboardButton("📻 90s Golden Retro", callback_data="qsearch:90s Hindi Retro"),
+            InlineKeyboardButton("🎸 Rock & Indie", callback_data="qsearch:Rock Hits"),
+        ],
+        [InlineKeyboardButton("🔙 Back to Menu", callback_data="cmd:start")],
+    ]
+
+    if update.callback_query:
+        await safe_answer_callback(update.callback_query)
+        await safe_edit_message(
+            update.callback_query,
+            charts_text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode=ParseMode.HTML,
+        )
+    elif update.message:
+        await update.message.reply_text(
+            charts_text,
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode=ParseMode.HTML,
         )

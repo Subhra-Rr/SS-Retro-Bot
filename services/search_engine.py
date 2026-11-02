@@ -113,10 +113,10 @@ class MusicSearchEngine:
             )
             return results or []
         except asyncio.TimeoutError:
-            logger.warning("Provider [%s] timed out on query '%s'", provider.name, query)
+            logger.debug("Provider [%s] timed out on query '%s'", provider.name, query)
             return []
         except Exception as e:
-            logger.error("Provider [%s] failed on query '%s': %s", provider.name, query, e)
+            logger.debug("Provider [%s] failed on query '%s': %s", provider.name, query, e)
             return []
 
     async def search(

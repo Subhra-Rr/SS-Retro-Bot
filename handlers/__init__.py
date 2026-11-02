@@ -3,6 +3,7 @@
 from handlers.admin import admin_command, broadcast_command, users_command
 from handlers.callbacks import handle_callback_query
 from handlers.commands import (
+    charts_command,
     favorites_command,
     help_command,
     history_command,
@@ -15,6 +16,7 @@ from handlers.inline import inline_query_handler
 from handlers.music import (
     album_command,
     artist_command,
+    audio_message_handler,
     search_command,
     song_command,
     text_search_handler,
@@ -24,6 +26,7 @@ __all__ = [
     "start_command",
     "help_command",
     "top_command",
+    "charts_command",
     "recent_command",
     "history_command",
     "favorites_command",
@@ -33,6 +36,7 @@ __all__ = [
     "artist_command",
     "album_command",
     "text_search_handler",
+    "audio_message_handler",
     "handle_callback_query",
     "inline_query_handler",
     "admin_command",

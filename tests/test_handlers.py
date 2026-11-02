@@ -46,7 +46,7 @@ def test_security_utilities():
 
     # Query sanitization
     assert sanitize_query("   Tum   Hi   Ho   ") == "Tum Hi Ho"
-    assert len(sanitize_query("A" * 300)) == 150
+    assert len(sanitize_query("A" * 300, max_length=150)) == 150
 
     # Rate limiter
     limiter = UserRateLimiter(max_requests=2, window_seconds=10.0)
@@ -69,6 +69,8 @@ def test_start_command():
         mock_update.callback_query = None
 
         mock_context = MagicMock()
+        mock_context.args = []
+        mock_context.bot.set_chat_menu_button = AsyncMock()
         mock_db = AsyncMock()
 
         with patch("handlers.commands.db", mock_db):
