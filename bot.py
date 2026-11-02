@@ -8,7 +8,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
-import os
 import sys
 from pathlib import Path
 
@@ -120,39 +119,6 @@ async def post_init(application: Application) -> None:
         await db.clear_all_search_cache()
     except Exception as e:
         logger.debug("Could not purge search cache on startup: %s", e)
-
-    # Start lightweight HTTP health-check server if PORT is set (enables 24/7 hosting on Render, Koyeb, etc.)
-    port_str = os.getenv("PORT")
-    if port_str:
-        try:
-            port = int(port_str)
-
-            async def handle_ping(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
-                try:
-                    await asyncio.wait_for(reader.read(512), timeout=5.0)
-                    body = b"SS Retro Bot is alive and healthy!\n"
-                    response = (
-                        b"HTTP/1.1 200 OK\r\n"
-                        b"Content-Type: text/plain; charset=utf-8\r\n"
-                        b"Content-Length: " + str(len(body)).encode("ascii") + b"\r\n"
-                        b"Connection: close\r\n"
-                        b"\r\n" + body
-                    )
-                    writer.write(response)
-                    await writer.drain()
-                except Exception as read_err:
-                    logger.debug("Health ping read error: %s", read_err)
-                finally:
-                    try:
-                        writer.close()
-                        await writer.wait_closed()
-                    except Exception:
-                        pass
-
-            await asyncio.start_server(handle_ping, "0.0.0.0", port)
-            logger.info("Cloud 24/7 health check server active on 0.0.0.0:%d", port)
-        except Exception as e:
-            logger.warning("Could not bind cloud health check server: %s", e)
 
 
 def build_application() -> Application:

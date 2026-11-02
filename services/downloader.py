@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import shutil
 import subprocess
 import uuid
@@ -185,6 +186,19 @@ class AudioDownloader:
                 logger.warning("yt-dlp ios player attempt failed for %s: %s", url, e2)
                 last_error = e2
 
+        # Extract 11-char video ID for cloud streaming fallback
+        video_id = None
+        m = re.search(r"(?:v=|youtu\.be/|shorts/)([a-zA-Z0-9_-]{11})", url)
+        if m:
+            video_id = m.group(1)
+
+        # Attempt 3: Cloud proxy streaming fallback (bypasses datacenter IP bot challenges)
+        if video_id and (not target_mp3.exists() or target_mp3.stat().st_size == 0):
+            logger.info("Attempting cloud streaming proxy fallback for video %s", video_id)
+            if self._fallback_stream_download(video_id, target_mp3, chosen_quality, ffmpeg_bin):
+                if target_mp3.exists() and target_mp3.stat().st_size > 0:
+                    return target_mp3, None
+
         # Check if target MP3 exists and is valid
         if target_mp3.exists() and target_mp3.stat().st_size > 0:
             file_size = target_mp3.stat().st_size
@@ -218,6 +232,98 @@ class AudioDownloader:
 
         err_msg = str(last_error) if last_error else "Audio extraction did not produce a valid file."
         return None, f"Audio extraction notice: {err_msg}"
+
+    def _fallback_stream_download(
+        self, video_id: str, target_mp3: Path, chosen_quality: str, ffmpeg_bin: Optional[str]
+    ) -> bool:
+        """Fallback to open streaming endpoints if YouTube blocks datacenter IP."""
+        import subprocess
+
+        piped_instances = [
+            "https://api.piped.private.coffee",
+            "https://pipedapi.kavin.rocks",
+            "https://pipedapi.tokhmi.xyz",
+        ]
+        invidious_instances = [
+            "https://inv.nadeko.net",
+            "https://invidious.nerdvpn.de",
+        ]
+
+        # Try Piped instances
+        for instance in piped_instances:
+            try:
+                endpoint = f"{instance}/streams/{video_id}"
+                with httpx.Client(timeout=10.0, follow_redirects=True) as client:
+                    resp = client.get(endpoint)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        audio_streams = data.get("audioStreams", [])
+                        if audio_streams:
+                            best_stream = audio_streams[0].get("url")
+                            if best_stream:
+                                tmp_audio = target_mp3.with_suffix(".tmp_stream")
+                                with client.stream("GET", best_stream) as stream_resp:
+                                    with open(tmp_audio, "wb") as f:
+                                        for chunk in stream_resp.iter_bytes(chunk_size=65536):
+                                            f.write(chunk)
+                                if tmp_audio.exists() and tmp_audio.stat().st_size > 1000:
+                                    if ffmpeg_bin:
+                                        conv_cmd = [
+                                            ffmpeg_bin,
+                                            "-y",
+                                            "-i", str(tmp_audio),
+                                            "-vn",
+                                            "-acodec", "libmp3lame",
+                                            "-b:a", f"{chosen_quality}k",
+                                            str(target_mp3),
+                                        ]
+                                        subprocess.run(conv_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                                        tmp_audio.unlink(missing_ok=True)
+                                        if target_mp3.exists() and target_mp3.stat().st_size > 0:
+                                            return True
+                                    else:
+                                        tmp_audio.rename(target_mp3)
+                                        return True
+            except Exception as pe:
+                logger.debug("Piped instance %s failed for %s: %s", instance, video_id, pe)
+
+        # Try Invidious instances
+        for inv in invidious_instances:
+            try:
+                endpoint = f"{inv}/api/v1/videos/{video_id}"
+                with httpx.Client(timeout=10.0, follow_redirects=True) as client:
+                    resp = client.get(endpoint)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        formats = data.get("adaptiveFormats", [])
+                        audio_formats = [f for f in formats if f.get("type", "").startswith("audio/")]
+                        if audio_formats:
+                            stream_url = audio_formats[0].get("url")
+                            if stream_url:
+                                tmp_audio = target_mp3.with_suffix(".tmp_stream")
+                                with client.stream("GET", stream_url) as stream_resp:
+                                    with open(tmp_audio, "wb") as f:
+                                        for chunk in stream_resp.iter_bytes(chunk_size=65536):
+                                            f.write(chunk)
+                                if tmp_audio.exists() and tmp_audio.stat().st_size > 1000:
+                                    if ffmpeg_bin:
+                                        conv_cmd = [
+                                            ffmpeg_bin,
+                                            "-y",
+                                            "-i", str(tmp_audio),
+                                            "-vn",
+                                            "-acodec", "libmp3lame",
+                                            "-b:a", f"{chosen_quality}k",
+                                            str(target_mp3),
+                                        ]
+                                        subprocess.run(conv_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                                        tmp_audio.unlink(missing_ok=True)
+                                        if target_mp3.exists() and target_mp3.stat().st_size > 0:
+                                            return True
+            except Exception as ie:
+                logger.debug("Invidious instance %s failed for %s: %s", inv, video_id, ie)
+
+        return False
 
     async def download_track(self, track: UnifiedTrack) -> tuple[Optional[Path], Optional[str]]:
         """
