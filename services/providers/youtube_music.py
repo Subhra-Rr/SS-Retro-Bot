@@ -141,6 +141,13 @@ class YouTubeMusicProvider(BaseMusicProvider):
             "quiet": True,
             "no_warnings": True,
             "skip_download": True,
+            "geo_bypass": True,
+            "nocheckcertificate": True,
+            "extractor_args": {
+                "youtube": {
+                    "player_client": ["android", "ios", "mweb", "web"],
+                }
+            },
         }
         search_query = f"ytsearch{min(limit, 15)}:{query}"
         try:
@@ -234,6 +241,13 @@ class YouTubeMusicProvider(BaseMusicProvider):
                 "no_warnings": True,
                 "extract_flat": True,
                 "skip_download": True,
+                "geo_bypass": True,
+                "nocheckcertificate": True,
+                "extractor_args": {
+                    "youtube": {
+                        "player_client": ["android", "ios", "mweb", "web"],
+                    }
+                },
             }
             try:
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:

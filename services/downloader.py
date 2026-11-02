@@ -81,7 +81,9 @@ class AudioDownloader:
     def _sync_yt_download(
         self, url: str, output_path: Path, duration: Optional[int] = None
     ) -> tuple[Optional[Path], Optional[str]]:
-        """Download and extract audio using yt-dlp and ffmpeg with dynamic bitrate scaling."""
+        """Download and extract audio using yt-dlp and ffmpeg with dynamic bitrate scaling and cloud bypass."""
+        import shutil
+        import subprocess
         import yt_dlp
 
         # Check duration limit (Telegram Bot API hard limit is 50MB)
@@ -94,7 +96,6 @@ class AudioDownloader:
             )
 
         # Dynamic bitrate scaling to ensure the converted MP3 stays within Telegram's 49MB upload ceiling
-        # 45MB = 368,640 kilobits
         if duration and duration > 0:
             calculated_kbps = int(360000 / duration)
             if calculated_kbps >= 320:
@@ -110,17 +111,20 @@ class AudioDownloader:
         else:
             chosen_quality = "320"
 
-        # Unique, clean alphanumeric token to prevent format collisions with % (e.g. '99% Headshot'),
-        # emojis, dots, or Windows path constraints.
+        # Unique, clean alphanumeric token to prevent format collisions
         self.download_dir.mkdir(parents=True, exist_ok=True)
         token = uuid.uuid4().hex[:12]
         outtmpl = str(self.download_dir / f"yt_{token}.%(ext)s")
         target_mp3 = self.download_dir / f"yt_{token}.mp3"
 
-        import shutil
-        ffmpeg_bin = shutil.which("ffmpeg")
-        ydl_opts = {
-            "format": "bestaudio/best",
+        ffmpeg_bin = (
+            shutil.which("ffmpeg")
+            or ("/usr/bin/ffmpeg" if Path("/usr/bin/ffmpeg").exists() else None)
+            or ("/usr/local/bin/ffmpeg" if Path("/usr/local/bin/ffmpeg").exists() else None)
+        )
+
+        base_opts = {
+            "format": "bestaudio/best[ext=m4a]/best[ext=mp3]/best",
             "outtmpl": outtmpl,
             "postprocessors": [
                 {
@@ -131,51 +135,89 @@ class AudioDownloader:
             ],
             "quiet": True,
             "no_warnings": True,
+            "geo_bypass": True,
+            "nocheckcertificate": True,
+            "socket_timeout": 35,
+            "retries": 3,
+            "fragment_retries": 3,
+            "skip_unavailable_fragments": True,
+            "http_headers": {
+                "User-Agent": "Mozilla/5.0 (Linux; Android 13; SM-G981B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36",
+                "Accept-Language": "en-US,en;q=0.9",
+            },
         }
         if ffmpeg_bin:
-            ydl_opts["ffmpeg_location"] = ffmpeg_bin
+            base_opts["ffmpeg_location"] = ffmpeg_bin
+
+        # Attempt 1: Android mobile client (optimal for cloud/datacenter IP bypass)
+        opts_android = dict(base_opts)
+        opts_android["extractor_args"] = {
+            "youtube": {
+                "player_client": ["android", "mweb", "web"],
+                "player_skip": ["webpage", "configs"],
+            }
+        }
+
+        download_success = False
+        last_error = None
 
         try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            with yt_dlp.YoutubeDL(opts_android) as ydl:
                 ydl.download([url])
+            download_success = True
+        except Exception as e1:
+            logger.warning("yt-dlp android player attempt failed for %s: %s", url, e1)
+            last_error = e1
 
-            # Check if target MP3 exists
-            if target_mp3.exists() and target_mp3.stat().st_size > 0:
-                file_size = target_mp3.stat().st_size
-                if file_size > self.max_bytes:
-                    target_mp3.unlink(missing_ok=True)
-                    return (
-                        None,
-                        "Audio file exceeds Telegram's 50MB upload limit. Please select a shorter track.",
-                    )
-                return target_mp3, None
+        # Attempt 2: iOS / web player client fallback
+        if not download_success or not target_mp3.exists() or target_mp3.stat().st_size == 0:
+            try:
+                opts_ios = dict(base_opts)
+                opts_ios["extractor_args"] = {
+                    "youtube": {
+                        "player_client": ["ios", "web"],
+                    }
+                }
+                with yt_dlp.YoutubeDL(opts_ios) as ydl:
+                    ydl.download([url])
+                download_success = True
+            except Exception as e2:
+                logger.warning("yt-dlp ios player attempt failed for %s: %s", url, e2)
+                last_error = e2
 
-            # Fallback check: find any file produced with the token
-            for candidate in self.download_dir.glob(f"yt_{token}.*"):
-                if candidate.is_file() and candidate.stat().st_size > 0:
-                    if candidate.suffix.lower() == ".mp3":
-                        return candidate, None
-                    # If file is not mp3 and ffmpeg is available, convert directly
-                    if ffmpeg_bin:
-                        import subprocess
-                        conv_cmd = [
-                            ffmpeg_bin,
-                            "-y",
-                            "-i", str(candidate),
-                            "-vn",
-                            "-acodec", "libmp3lame",
-                            "-b:a", f"{chosen_quality}k",
-                            str(target_mp3),
-                        ]
-                        subprocess.run(conv_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                        candidate.unlink(missing_ok=True)
-                        if target_mp3.exists() and target_mp3.stat().st_size > 0:
-                            return target_mp3, None
+        # Check if target MP3 exists and is valid
+        if target_mp3.exists() and target_mp3.stat().st_size > 0:
+            file_size = target_mp3.stat().st_size
+            if file_size > self.max_bytes:
+                target_mp3.unlink(missing_ok=True)
+                return (
+                    None,
+                    "Audio file exceeds Telegram's 50MB upload limit. Please select a shorter track.",
+                )
+            return target_mp3, None
 
-            return None, "Audio extraction did not produce a valid file."
-        except Exception as e:
-            logger.error("yt-dlp download error on %s: %s", url, e)
-            return None, f"Audio extraction error: {e}"
+        # Fallback check: find any file produced with the token and convert directly with ffmpeg
+        for candidate in self.download_dir.glob(f"yt_{token}.*"):
+            if candidate.is_file() and candidate.stat().st_size > 0:
+                if candidate.suffix.lower() == ".mp3":
+                    return candidate, None
+                if ffmpeg_bin:
+                    conv_cmd = [
+                        ffmpeg_bin,
+                        "-y",
+                        "-i", str(candidate),
+                        "-vn",
+                        "-acodec", "libmp3lame",
+                        "-b:a", f"{chosen_quality}k",
+                        str(target_mp3),
+                    ]
+                    subprocess.run(conv_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    candidate.unlink(missing_ok=True)
+                    if target_mp3.exists() and target_mp3.stat().st_size > 0:
+                        return target_mp3, None
+
+        err_msg = str(last_error) if last_error else "Audio extraction did not produce a valid file."
+        return None, f"Audio extraction notice: {err_msg}"
 
     async def download_track(self, track: UnifiedTrack) -> tuple[Optional[Path], Optional[str]]:
         """

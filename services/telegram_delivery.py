@@ -114,8 +114,9 @@ class TelegramAudioDelivery:
                     performer=track.artist,
                     filename=safe_filename,
                     duration=file_duration,
-                    write_timeout=180.0,
-                    read_timeout=60.0,
+                    write_timeout=300.0,
+                    read_timeout=120.0,
+                    connect_timeout=60.0,
                 )
 
             # Step 6: Cache Telegram file_id for future instant delivery
@@ -135,30 +136,14 @@ class TelegramAudioDelivery:
             return True, None, msg
 
         except (TimedOut, asyncio.TimeoutError) as te:
-            # Telegram client timed out waiting for acknowledgment, but the full file
-            # was already dispatched to Telegram's backend servers which will finish delivering it.
-            logger.info(
-                "Telegram upload timed out waiting for server acknowledgment for track %s (%s). "
-                "File was already dispatched to Telegram servers.",
+            logger.warning(
+                "Telegram upload timed out waiting for server acknowledgment for track %s: %s",
                 track.id,
                 te,
             )
-            if user_id:
-                await db.add_recent_track(user_id, track.to_dict())
-            return True, None, None
+            return False, "Upload to Telegram took too long or timed out. Please try again.", None
 
         except Exception as e:
-            err_str = str(e).lower()
-            if "time" in err_str or "timedout" in err_str or "timeout" in err_str or "network" in err_str:
-                logger.info(
-                    "Telegram upload connection timed out for track %s (%s). File was dispatched.",
-                    track.id,
-                    e,
-                )
-                if user_id:
-                    await db.add_recent_track(user_id, track.to_dict())
-                return True, None, None
-
             logger.error("Failed to send audio for track %s to Telegram: %s", track.id, e)
             return False, f"Telegram upload error: {e}", None
 

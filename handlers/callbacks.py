@@ -27,7 +27,6 @@ from handlers.commands import (
 from handlers.music import build_search_view, execute_search
 from services.audio_effects import EFFECT_PRESETS, audio_effects_engine
 from services.downloader import audio_downloader
-from services.lyrics_engine import lyrics_engine
 from services.providers.base import UnifiedTrack
 from services.providers.registry import registry
 from services.search_engine import search_engine
@@ -260,7 +259,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         track_id = data.split(":", 1)[1]
         await safe_answer_callback(query, "Preparing audio download...")
 
-        # Retrieve track
+        # Retrieve track from memory, provider, or database fallback
         track: UnifiedTrack | None = None
         if context.user_data and f"selected:{track_id}" in context.user_data:
             track = UnifiedTrack.from_dict(context.user_data[f"selected:{track_id}"])
@@ -268,7 +267,17 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             track = await search_engine.get_track_by_id(track_id)
 
         if not track:
-            await safe_answer_callback(query, "Could not find track information.", show_alert=True)
+            try:
+                recent = await db.get_recent_tracks(user.id, limit=30)
+                for r in recent:
+                    if str(r.get("id")) == str(track_id):
+                        track = UnifiedTrack.from_dict(r)
+                        break
+            except Exception:
+                pass
+
+        if not track:
+            await safe_answer_callback(query, "Could not find track information. Please try searching again.", show_alert=True)
             return
 
         if track.duration and track.duration > 7200:
@@ -287,8 +296,8 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 text=f"⏳ <i>Downloading audio for '<b>{escape_html(track.title)}</b>'...</i>",
                 parse_mode=ParseMode.HTML,
             )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Could not send download status message: %s", e)
 
         try:
             # If track has no direct full audio (e.g. from iTunes/Spotify), find matching stream on YouTube
@@ -330,27 +339,42 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 user_id=user.id,
             )
 
-            # Clean up the downloading status indicator message
-            if status_msg:
-                await safe_delete_message(status_msg)
-
-            if not success and err:
-                err_lower = err.lower()
-                if "time" not in err_lower and "out" not in err_lower:
+            if success and msg:
+                # Successfully delivered audio! Now clean up the status indicator
+                if status_msg:
+                    await safe_delete_message(status_msg)
+            else:
+                # Delivery was not completed — keep message and inform the user clearly
+                err_text = err or "Could not retrieve audio stream from provider."
+                if status_msg:
+                    await safe_edit_message(
+                        status_msg,
+                        f"⚠️ <b>Delivery notice for '<i>{escape_html(track.title)}</i>':</b>\n\n"
+                        f"<i>{escape_html(err_text)}</i>\n\n"
+                        f"💡 <i>Tip: Try searching with another keyword or selecting a different result.</i>",
+                        parse_mode=ParseMode.HTML,
+                    )
+                else:
                     await context.bot.send_message(
                         chat_id=chat.id,
-                        text=f"❌ <b>Delivery notice:</b> {escape_html(err)}",
+                        text=f"⚠️ <b>Delivery notice:</b> {escape_html(err_text)}",
                         parse_mode=ParseMode.HTML,
                     )
         except Exception as e:
             logger.error("Download handling exception for %s: %s", track_id, e, exc_info=True)
             if status_msg:
-                await safe_delete_message(status_msg)
-            await context.bot.send_message(
-                chat_id=chat.id,
-                text=f"❌ <b>Download notice:</b> {escape_html(str(e))}",
-                parse_mode=ParseMode.HTML,
-            )
+                await safe_edit_message(
+                    status_msg,
+                    f"⚠️ <b>Download notice:</b> {escape_html(str(e))}\n\n"
+                    f"Please try again shortly or select another track.",
+                    parse_mode=ParseMode.HTML,
+                )
+            else:
+                await context.bot.send_message(
+                    chat_id=chat.id,
+                    text=f"⚠️ <b>Download notice:</b> {escape_html(str(e))}",
+                    parse_mode=ParseMode.HTML,
+                )
         return
 
     # Audio FX Studio menu: fx_menu:{track_id}
@@ -477,12 +501,13 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             # Download base track
             base_file, dl_err = await audio_downloader.download_track(track)
             if not base_file:
-                await safe_delete_message(status_msg)
-                await context.bot.send_message(
-                    chat_id=chat.id,
-                    text=f"❌ <b>Effect notice:</b> {escape_html(dl_err or 'Could not download source track.')}",
-                    parse_mode=ParseMode.HTML,
-                )
+                if status_msg:
+                    await safe_edit_message(
+                        status_msg,
+                        f"❌ <b>Effect notice:</b> {escape_html(dl_err or 'Could not download source track.')}\n\n"
+                        f"💡 <i>Tip: Try another song or standard download.</i>",
+                        parse_mode=ParseMode.HTML,
+                    )
                 return
 
             # Apply FFmpeg filter
@@ -490,12 +515,12 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             audio_downloader.cleanup(base_file)
 
             if not fx_file:
-                await safe_delete_message(status_msg)
-                await context.bot.send_message(
-                    chat_id=chat.id,
-                    text=f"❌ <b>Effect error:</b> {escape_html(fx_err or 'Audio processing failed.')}",
-                    parse_mode=ParseMode.HTML,
-                )
+                if status_msg:
+                    await safe_edit_message(
+                        status_msg,
+                        f"❌ <b>Effect error:</b> {escape_html(fx_err or 'Audio processing failed.')}",
+                        parse_mode=ParseMode.HTML,
+                    )
                 return
 
             caption = (
@@ -515,8 +540,8 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                         title=f"{track.title} {preset['tag_suffix']}",
                         performer=track.artist,
                         filename=safe_name,
-                        write_timeout=180.0,
-                        read_timeout=60.0,
+                        write_timeout=300.0,
+                        read_timeout=120.0,
                     )
                 if msg and msg.audio and msg.audio.file_id:
                     await db.cache_telegram_file_id(
@@ -525,18 +550,19 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                         telegram_file_id=msg.audio.file_id,
                         file_size=fx_file.stat().st_size if fx_file.exists() else 0,
                     )
+                if status_msg:
+                    await safe_delete_message(status_msg)
             finally:
                 audio_effects_engine.cleanup(fx_file)
-                await safe_delete_message(status_msg)
 
         except Exception as e:
             logger.error("Audio FX exception: %s", e)
-            await safe_delete_message(status_msg)
-            await context.bot.send_message(
-                chat_id=chat.id,
-                text=f"❌ <b>Effect notice:</b> {escape_html(str(e))}",
-                parse_mode=ParseMode.HTML,
-            )
+            if status_msg:
+                await safe_edit_message(
+                    status_msg,
+                    f"❌ <b>Effect notice:</b> {escape_html(str(e))}",
+                    parse_mode=ParseMode.HTML,
+                )
         return
 
     # View Lyrics: lyrics:{track_id}
