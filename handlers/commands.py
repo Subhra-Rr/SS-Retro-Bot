@@ -12,7 +12,6 @@ from telegram.ext import ContextTypes
 
 from config import config
 from database import db
-from services.lyrics_engine import lyrics_engine
 from services.providers.registry import registry
 from services.search_engine import search_engine
 from utils.formatting import escape_html, format_duration, format_track_summary
@@ -76,14 +75,9 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                     card_lines.append(f"🏷 <b>Genre:</b> {escape_html(track.genre)}")
                 card_lines.append("\n✅ <b>Complete audio track is ready for download.</b>")
 
-                genius_url = lyrics_engine.get_genius_url(track.title, track.artist)
                 keyboard = [
                     [InlineKeyboardButton("📥 Download (320 kbps MP3)", callback_data=f"dl:{track.id}")],
-                    [
-                        InlineKeyboardButton("📜 Lyrics (Genius.com)", url=genius_url),
-                        InlineKeyboardButton("🎛️ Audio FX Studio", callback_data=f"fx_menu:{track.id}"),
-                    ],
-                    [InlineKeyboardButton("📜 Read Lyrics in Chat", callback_data=f"lyrics:{track.id}")],
+                    [InlineKeyboardButton("🎛️ Audio FX Studio", callback_data=f"fx_menu:{track.id}")],
                 ]
                 if track.external_url:
                     keyboard.append([InlineKeyboardButton("🎧 Listen on Official Platform", url=track.external_url)])

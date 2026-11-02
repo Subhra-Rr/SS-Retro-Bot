@@ -14,7 +14,6 @@ from telegram.ext import ContextTypes
 
 from config import config
 from database import db
-from services.lyrics_engine import lyrics_engine
 from services.providers.base import UnifiedTrack
 from services.providers.registry import registry
 from services.search_engine import search_engine
@@ -138,7 +137,7 @@ async def execute_search(
                     "📑 <b>YouTube Playlist Detected</b>\n",
                     f"💿 <b>Playlist:</b> {escape_html(title or 'YouTube Playlist')}",
                     f"📊 <b>Tracks:</b> Found {len(pl_tracks)} song(s)\n",
-                    "<i>Tap any song below to download MP3, apply Audio FX, or view lyrics:</i>\n",
+                    "<i>Tap any song below to download MP3 or apply Audio FX:</i>\n",
                 ]
                 keyboard = []
                 for idx, track in enumerate(pl_tracks, start=1):
@@ -203,15 +202,10 @@ async def execute_search(
             f"🔗 <a href=\"{track.external_url}\">Watch on YouTube</a>\n\n"
             "🎧 <b>Audio:</b> Ready to convert to MP3 (192–320 kbps clear sound)"
         )
-        genius_url = lyrics_engine.get_genius_url(track.title, track.artist)
         keyboard = [
             [InlineKeyboardButton("📥 Download Audio (MP3)", callback_data=f"dl:{track.id}")],
             [
-                InlineKeyboardButton("📜 Lyrics (Genius.com)", url=genius_url),
                 InlineKeyboardButton("🎛️ Audio FX Studio", callback_data=f"fx_menu:{track.id}"),
-            ],
-            [
-                InlineKeyboardButton("📜 Read Lyrics in Chat", callback_data=f"lyrics:{track.id}"),
                 InlineKeyboardButton("⭐ Add to Favorites", callback_data=f"fav_add:{track.id}"),
             ],
             [InlineKeyboardButton("🔙 Main Menu", callback_data="cmd:start")],

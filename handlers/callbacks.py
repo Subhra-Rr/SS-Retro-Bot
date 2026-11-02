@@ -224,14 +224,9 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             card_lines.append(f"\n⚠️ <b>Continuous compilation ({duration_str}). Exceeds Telegram's 50MB bot limit.</b>")
         else:
             card_lines.append("\n✅ <b>Complete audio track is ready for download.</b>")
-        genius_url = lyrics_engine.get_genius_url(track.title, track.artist)
         keyboard = [
             [InlineKeyboardButton("📥 Download (320 kbps MP3)", callback_data=f"dl:{track.id}")],
-            [
-                InlineKeyboardButton("📜 Lyrics (Genius.com)", url=genius_url),
-                InlineKeyboardButton("🎛️ Audio FX Studio", callback_data=f"fx_menu:{track.id}"),
-            ],
-            [InlineKeyboardButton("📜 Read Lyrics in Chat", callback_data=f"lyrics:{track.id}")],
+            [InlineKeyboardButton("🎛️ Audio FX Studio", callback_data=f"fx_menu:{track.id}")],
         ]
 
         if track.external_url:
@@ -563,50 +558,6 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                     f"❌ <b>Effect notice:</b> {escape_html(str(e))}",
                     parse_mode=ParseMode.HTML,
                 )
-        return
-
-    # View Lyrics: lyrics:{track_id}
-    if data.startswith("lyrics:"):
-        track_id = data.split(":", 1)[1]
-        await safe_answer_callback(query, "Fetching lyrics...")
-
-        track = None
-        if context.user_data and f"selected:{track_id}" in context.user_data:
-            track = UnifiedTrack.from_dict(context.user_data[f"selected:{track_id}"])
-        else:
-            track = await search_engine.get_track_by_id(track_id)
-
-        if not track:
-            await safe_answer_callback(query, "Could not locate track.", show_alert=True)
-            return
-
-        genius_url = lyrics_engine.get_genius_url(track.title, track.artist)
-        lyrics_text = await lyrics_engine.get_lyrics(track.title, track.artist)
-        if not lyrics_text:
-            lyrics_text = (
-                f"📜 <b>Song Lyrics — {escape_html(track.title)}</b>\n"
-                f"👤 <i>{escape_html(track.artist)}</i>\n\n"
-                f"✨ <i>Tap the button below to view verified lyrics, English translations, and line-by-line annotations directly on <b>Genius.com</b>:</i>"
-            )
-            keyboard = [
-                [InlineKeyboardButton("📜 View Lyrics on Genius.com", url=genius_url)],
-                [InlineKeyboardButton("📥 Download Audio", callback_data=f"dl:{track.id}")],
-                [InlineKeyboardButton("🎛️ Audio FX Studio", callback_data=f"fx_menu:{track.id}")],
-                [InlineKeyboardButton("🔙 Back to Track", callback_data=f"track:{track.id}")],
-            ]
-        else:
-            keyboard = [
-                [InlineKeyboardButton("📜 Open on Genius.com", url=genius_url)],
-                [InlineKeyboardButton("📥 Download Audio", callback_data=f"dl:{track.id}")],
-                [InlineKeyboardButton("🎛️ Audio FX Studio", callback_data=f"fx_menu:{track.id}")],
-                [InlineKeyboardButton("🔙 Back to Track", callback_data=f"track:{track.id}")],
-            ]
-        await safe_edit_message(
-            query,
-            lyrics_text,
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode=ParseMode.HTML,
-        )
         return
 
     # Add to favorites: fav_add:{track_id}
