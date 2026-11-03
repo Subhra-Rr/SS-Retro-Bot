@@ -1,6 +1,14 @@
 """Telegram handlers package."""
 
-from handlers.admin import admin_command, broadcast_command, users_command
+from handlers.admin import (
+    admin_command,
+    block_term_command,
+    blocklist_command,
+    broadcast_command,
+    schedule_broadcast_command,
+    unblock_term_command,
+    users_command,
+)
 from handlers.callbacks import handle_callback_query
 from handlers.commands import (
     charts_command,
@@ -21,6 +29,8 @@ from handlers.music import (
     song_command,
     text_search_handler,
 )
+from handlers.playlist import playlist_command
+from handlers.stats import stats_command
 
 __all__ = [
     "start_command",
@@ -42,4 +52,10 @@ __all__ = [
     "admin_command",
     "users_command",
     "broadcast_command",
+    "schedule_broadcast_command",
+    "block_term_command",
+    "unblock_term_command",
+    "blocklist_command",
+    "playlist_command",
+    "stats_command",
 ]

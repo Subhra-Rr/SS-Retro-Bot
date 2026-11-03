@@ -76,8 +76,14 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                 card_lines.append("\n✅ <b>Complete audio track is ready for download.</b>")
 
                 keyboard = [
-                    [InlineKeyboardButton("📥 Download (320 kbps MP3)", callback_data=f"dl:{track.id}")],
-                    [InlineKeyboardButton("🎛️ Audio FX Studio", callback_data=f"fx_menu:{track.id}")],
+                    [
+                        InlineKeyboardButton("📥 Download (Fast)", callback_data=f"dl:{track.id}"),
+                        InlineKeyboardButton("🎚️ Quality Selector", callback_data=f"dl_menu:{track.id}"),
+                    ],
+                    [
+                        InlineKeyboardButton("🎛️ Audio FX Studio", callback_data=f"fx_menu:{track.id}"),
+                        InlineKeyboardButton("➕ Add to Playlist", callback_data=f"pl_choose:{track.id}"),
+                    ],
                 ]
                 if track.external_url:
                     keyboard.append([InlineKeyboardButton("🎧 Listen on Official Platform", url=track.external_url)])
@@ -113,6 +119,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         [
             InlineKeyboardButton("⭐ Favorites", callback_data="cmd:favorites"),
             InlineKeyboardButton("🕒 Recent", callback_data="cmd:recent"),
+            InlineKeyboardButton("📁 Playlists", callback_data="cmd:playlist"),
+            InlineKeyboardButton("📊 Stats", callback_data="cmd:stats"),
         ],
         [
             InlineKeyboardButton("🇮🇳 Hindi Hits", callback_data="qsearch:Hindi"),
@@ -149,20 +157,24 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     help_text = (
         "📚 <b>SS Retro Bot — User Guide</b>\n\n"
         "<b>Available Commands:</b>\n"
-        "• <code>/search &lt;query&gt;</code> — Search songs, artists, albums, or lyrics\n"
+        "• <code>/search &lt;query&gt;</code> — Search songs, artists, albums\n"
         "• <code>/song &lt;title&gt;</code> — Dedicated track search\n"
-        "• <code>/artist &lt;name&gt;</code> — Discover songs by artist\n"
+        "• <code>/artist &lt;name&gt;</code> — Discography browser with albums and years\n"
         "• <code>/album &lt;name&gt;</code> — Search music albums\n"
+        "• <code>/playlist</code> — Create and manage personal playlists\n"
+        "• <code>/stats</code> — View your personal download statistics\n"
         "• <code>/top</code> — Explore featured & trending music\n"
         "• <code>/recent</code> — View your recently delivered tracks\n"
         "• <code>/favorites</code> — Access your saved favorite tracks\n"
-        "• <code>/settings</code> — Configure search preferences & page size\n"
+        "• <code>/settings</code> — Configure bitrate quality & filename formats\n"
         "• <code>/help</code> — Show this guide\n\n"
-        "🎧 <b>Real-World Music Features:</b>\n"
-        "• <b>Live Search:</b> Type any song name (Hindi, Bollywood, Odia, Punjabi, English, etc.) for instant matches.\n"
-        "• <b>YouTube Link Converter:</b> Paste any YouTube URL directly into the chat to convert video to high-fidelity MP3.\n"
-        "• <b>Crystal Clear Audio:</b> Full-length MP3 files (up to 320 kbps) delivered directly to Telegram.\n"
-        "• <b>Admin Tools:</b> <code>/users</code> to view registered users, <code>/broadcast</code> to send announcements."
+        "🎧 <b>Premium Features:</b>\n"
+        "• <b>Quality Selector:</b> Choose 64, 128, 192, 320 kbps MP3 or Lossless FLAC / WAV\n"
+        "• <b>Batch Download:</b> Select multiple tracks to download in a queue automatically\n"
+        "• <b>Live Progress Meter:</b> Real-time download percentage and speed meter\n"
+        "• <b>Album Art & ID3 Tags:</b> High-res cover art and metadata embedded\n"
+        "• <b>Smart Duplicates:</b> Instant cache delivery with zero bandwidth delay\n"
+        "• <b>Admin Tools:</b> <code>/users</code>, <code>/broadcast</code>, <code>/schedule_broadcast</code>, <code>/block</code>"
     )
 
     if update.callback_query:
@@ -427,24 +439,47 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     settings = await db.get_user_settings(user.id)
     rpp = settings.get("results_per_page", config.default_results_per_page)
     lang = settings.get("preferred_language", "all")
+    quality = settings.get("audio_quality", "320")
+    fn_format = settings.get("filename_format", "artist_title")
+
+    format_labels = {
+        "artist_title": "Artist - Title",
+        "title_artist": "Title - Artist",
+        "title_year": "Title (Year)",
+        "retro_title": "SS Retro - Title",
+    }
+    fn_display = format_labels.get(fn_format, fn_format)
 
     text = (
         "⚙ <b>User Settings & Preferences</b>\n\n"
         f"• <b>Results per page:</b> <code>{rpp}</code>\n"
-        f"• <b>Preferred Language:</b> <code>{lang.capitalize()}</code>\n\n"
-        "Customize how search results and navigation are displayed:"
+        f"• <b>Preferred Language:</b> <code>{lang.capitalize()}</code>\n"
+        f"• <b>Default Quality:</b> <code>{quality.upper()}</code>\n"
+        f"• <b>Filename Format:</b> <code>{fn_display}</code>\n\n"
+        "Customize your music experience below:"
     )
 
     keyboard = [
         [
-            InlineKeyboardButton("📄 3 per page", callback_data="set:rpp:3"),
-            InlineKeyboardButton("📄 5 per page", callback_data="set:rpp:5"),
-            InlineKeyboardButton("📄 8 per page", callback_data="set:rpp:8"),
+            InlineKeyboardButton("📄 3 / pg", callback_data="set:rpp:3"),
+            InlineKeyboardButton("📄 5 / pg", callback_data="set:rpp:5"),
+            InlineKeyboardButton("📄 8 / pg", callback_data="set:rpp:8"),
         ],
         [
-            InlineKeyboardButton("🌐 All Languages", callback_data="set:lang:all"),
+            InlineKeyboardButton("🌐 All", callback_data="set:lang:all"),
             InlineKeyboardButton("🇮🇳 Hindi", callback_data="set:lang:hindi"),
             InlineKeyboardButton("🌸 Odia", callback_data="set:lang:odia"),
+        ],
+        [
+            InlineKeyboardButton("💎 320k", callback_data="set:quality:320"),
+            InlineKeyboardButton("🎧 192k", callback_data="set:quality:192"),
+            InlineKeyboardButton("📻 128k", callback_data="set:quality:128"),
+            InlineKeyboardButton("🎵 FLAC", callback_data="set:quality:flac"),
+        ],
+        [
+            InlineKeyboardButton("🏷️ Artist - Title", callback_data="set:fn:artist_title"),
+            InlineKeyboardButton("🏷️ Title - Artist", callback_data="set:fn:title_artist"),
+            InlineKeyboardButton("🏷️ SS Retro - Title", callback_data="set:fn:retro_title"),
         ],
         [InlineKeyboardButton("🔙 Back to Menu", callback_data="cmd:start")],
     ]

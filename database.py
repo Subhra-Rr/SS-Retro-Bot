@@ -123,6 +123,51 @@ SCHEMA_STATEMENTS = [
     """
     CREATE INDEX IF NOT EXISTS idx_analytics_event ON analytics_events (event_name, timestamp);
     """,
+    """
+    CREATE TABLE IF NOT EXISTS playlists (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        created_at REAL NOT NULL,
+        updated_at REAL NOT NULL,
+        UNIQUE (user_id, name),
+        FOREIGN KEY (user_id) REFERENCES users (user_id)
+    );
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS playlist_tracks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        playlist_id INTEGER NOT NULL,
+        track_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        artist TEXT NOT NULL,
+        raw_json TEXT NOT NULL,
+        added_at REAL NOT NULL,
+        FOREIGN KEY (playlist_id) REFERENCES playlists (id) ON DELETE CASCADE
+    );
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS download_stats (
+        user_id INTEGER NOT NULL,
+        track_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        artist TEXT NOT NULL,
+        provider_name TEXT NOT NULL,
+        downloaded_at REAL NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users (user_id)
+    );
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_download_stats_user ON download_stats (user_id, downloaded_at DESC);
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS blocked_terms (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        term TEXT NOT NULL UNIQUE,
+        added_by INTEGER,
+        added_at REAL NOT NULL
+    );
+    """,
 ]
 
 
@@ -140,6 +185,11 @@ class Database:
             await db.execute("PRAGMA busy_timeout=10000;")
             for statement in SCHEMA_STATEMENTS:
                 await db.execute(statement)
+            # Ensure filename_format column exists (Feature 9)
+            try:
+                await db.execute("ALTER TABLE user_settings ADD COLUMN filename_format TEXT DEFAULT 'artist_title';")
+            except Exception:
+                pass
             await db.commit()
         logger.info("Database schema initialized at %s", self.db_path)
 
@@ -372,6 +422,7 @@ class Database:
             "preferred_language": str,
             "preferred_genre": str,
             "audio_quality": str,
+            "filename_format": str,
         }
         if key not in allowed_keys:
             raise ValueError(f"Invalid setting key: {key}")
@@ -525,6 +576,209 @@ class Database:
                 "total_favorites": total_favorites,
                 "cached_telegram_files": cached_files,
             }
+
+    # ─── Playlist Methods ───────────────────────────────────────────────────
+
+    async def create_playlist(self, user_id: int, name: str) -> Optional[int]:
+        """Create a new playlist for user. Returns playlist id or None if already exists."""
+        now = time.time()
+        try:
+            async with aiosqlite.connect(self.db_path) as db:
+                cursor = await db.execute(
+                    "INSERT INTO playlists (user_id, name, created_at, updated_at) VALUES (?, ?, ?, ?)",
+                    (user_id, name.strip(), now, now),
+                )
+                await db.commit()
+                return cursor.lastrowid
+        except Exception:
+            return None
+
+    async def get_playlists(self, user_id: int) -> List[Dict[str, Any]]:
+        """Get all playlists for a user."""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT id, name, created_at FROM playlists WHERE user_id = ? ORDER BY updated_at DESC",
+                (user_id,),
+            ) as cursor:
+                rows = await cursor.fetchall()
+                return [dict(r) for r in rows]
+
+    async def get_playlist_by_name(self, user_id: int, name: str) -> Optional[Dict[str, Any]]:
+        """Get a playlist by name."""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT id, name, created_at FROM playlists WHERE user_id = ? AND name = ?",
+                (user_id, name.strip()),
+            ) as cursor:
+                row = await cursor.fetchone()
+                return dict(row) if row else None
+
+    async def add_track_to_playlist(self, playlist_id: int, track: Dict[str, Any]) -> bool:
+        """Add a track to a playlist. Returns True if added."""
+        now = time.time()
+        try:
+            async with aiosqlite.connect(self.db_path) as db:
+                await db.execute(
+                    """
+                    INSERT INTO playlist_tracks (playlist_id, track_id, title, artist, raw_json, added_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        playlist_id,
+                        str(track.get("id", "")),
+                        track.get("title", "Unknown"),
+                        track.get("artist", "Unknown"),
+                        json.dumps(track, ensure_ascii=False),
+                        now,
+                    ),
+                )
+                await db.execute(
+                    "UPDATE playlists SET updated_at = ? WHERE id = ?",
+                    (now, playlist_id),
+                )
+                await db.commit()
+                return True
+        except Exception:
+            return False
+
+    async def get_playlist_tracks(self, playlist_id: int) -> List[Dict[str, Any]]:
+        """Get all tracks in a playlist."""
+        async with aiosqlite.connect(self.db_path) as db:
+            async with db.execute(
+                "SELECT raw_json FROM playlist_tracks WHERE playlist_id = ? ORDER BY added_at ASC",
+                (playlist_id,),
+            ) as cursor:
+                rows = await cursor.fetchall()
+                tracks = []
+                for (raw,) in rows:
+                    try:
+                        tracks.append(json.loads(raw))
+                    except Exception:
+                        continue
+                return tracks
+
+    async def delete_playlist(self, user_id: int, name: str) -> bool:
+        """Delete a playlist by name."""
+        try:
+            async with aiosqlite.connect(self.db_path) as db:
+                cursor = await db.execute(
+                    "DELETE FROM playlists WHERE user_id = ? AND name = ?",
+                    (user_id, name.strip()),
+                )
+                await db.commit()
+                return cursor.rowcount > 0
+        except Exception:
+            return False
+
+    # ─── Download Statistics ─────────────────────────────────────────────────
+
+    async def record_download(self, user_id: int, track: Dict[str, Any]) -> None:
+        """Record a completed download for stats tracking."""
+        now = time.time()
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                """
+                INSERT INTO download_stats (user_id, track_id, title, artist, provider_name, downloaded_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    user_id,
+                    str(track.get("id", "")),
+                    track.get("title", "Unknown"),
+                    track.get("artist", "Unknown"),
+                    track.get("provider_name", "unknown"),
+                    now,
+                ),
+            )
+            await db.commit()
+
+    async def get_user_download_stats(self, user_id: int) -> Dict[str, Any]:
+        """Get download statistics for a user."""
+        week_ago = time.time() - 7 * 86400
+        month_ago = time.time() - 30 * 86400
+        async with aiosqlite.connect(self.db_path) as db:
+            async with db.execute(
+                "SELECT COUNT(*) FROM download_stats WHERE user_id = ?", (user_id,)
+            ) as c:
+                total = (await c.fetchone())[0]
+            async with db.execute(
+                "SELECT COUNT(*) FROM download_stats WHERE user_id = ? AND downloaded_at > ?",
+                (user_id, week_ago),
+            ) as c:
+                this_week = (await c.fetchone())[0]
+            async with db.execute(
+                "SELECT COUNT(*) FROM download_stats WHERE user_id = ? AND downloaded_at > ?",
+                (user_id, month_ago),
+            ) as c:
+                this_month = (await c.fetchone())[0]
+            async with db.execute(
+                """
+                SELECT artist, COUNT(*) as cnt FROM download_stats
+                WHERE user_id = ?
+                GROUP BY artist ORDER BY cnt DESC LIMIT 1
+                """,
+                (user_id,),
+            ) as c:
+                top_artist_row = await c.fetchone()
+            async with db.execute(
+                """
+                SELECT title, artist FROM download_stats
+                WHERE user_id = ?
+                ORDER BY downloaded_at DESC LIMIT 5
+                """,
+                (user_id,),
+            ) as c:
+                recent_rows = await c.fetchall()
+        return {
+            "total": total,
+            "this_week": this_week,
+            "this_month": this_month,
+            "top_artist": top_artist_row[0] if top_artist_row else None,
+            "recent": [{"title": r[0], "artist": r[1]} for r in recent_rows],
+        }
+
+    # ─── Blocked Terms ───────────────────────────────────────────────────────
+
+    async def add_blocked_term(self, term: str, added_by: int) -> bool:
+        """Add a search term to the blocklist."""
+        now = time.time()
+        try:
+            async with aiosqlite.connect(self.db_path) as db:
+                await db.execute(
+                    "INSERT OR IGNORE INTO blocked_terms (term, added_by, added_at) VALUES (?, ?, ?)",
+                    (term.lower().strip(), added_by, now),
+                )
+                await db.commit()
+                return True
+        except Exception:
+            return False
+
+    async def remove_blocked_term(self, term: str) -> bool:
+        """Remove a term from the blocklist."""
+        try:
+            async with aiosqlite.connect(self.db_path) as db:
+                cursor = await db.execute(
+                    "DELETE FROM blocked_terms WHERE term = ?", (term.lower().strip(),)
+                )
+                await db.commit()
+                return cursor.rowcount > 0
+        except Exception:
+            return False
+
+    async def get_blocked_terms(self) -> List[str]:
+        """Return all blocked terms."""
+        async with aiosqlite.connect(self.db_path) as db:
+            async with db.execute("SELECT term FROM blocked_terms ORDER BY term") as cursor:
+                rows = await cursor.fetchall()
+                return [r[0] for r in rows]
+
+    async def is_term_blocked(self, query: str) -> bool:
+        """Check if a query contains any blocked term."""
+        query_lower = query.lower()
+        terms = await self.get_blocked_terms()
+        return any(t in query_lower for t in terms)
 
 
 # Singleton database instance

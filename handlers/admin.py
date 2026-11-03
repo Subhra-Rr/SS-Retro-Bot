@@ -6,6 +6,7 @@ and system status diagnostics (/admin).
 
 from __future__ import annotations
 
+import asyncio
 import datetime
 import logging
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -238,3 +239,130 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         f"• <b>Message sent:</b>\n<i>{escape_html(announcement_text)}</i>",
         parse_mode=ParseMode.HTML,
     )
+
+
+async def schedule_broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Schedule an admin broadcast message after a specified delay in minutes (Feature 15)."""
+    user = update.effective_user
+    if not user or not config.is_admin(user.id):
+        if update.message:
+            await update.message.reply_text("⛔ Access Denied: You are not authorized to use admin features.")
+        return
+
+    if not context.args or len(context.args) < 2:
+        guide = (
+            "⏰ <b>Scheduled Broadcast System</b>\n\n"
+            "Usage: <code>/schedule_broadcast &lt;delay_minutes&gt; &lt;message&gt;</code>\n\n"
+            "<i>Example:</i>\n"
+            "<code>/schedule_broadcast 30 Scheduled maintenance starts in 10 minutes.</code>"
+        )
+        if update.message:
+            await update.message.reply_text(guide, parse_mode=ParseMode.HTML)
+        return
+
+    try:
+        delay_minutes = float(context.args[0])
+    except ValueError:
+        if update.message:
+            await update.message.reply_text("❌ Please specify a valid delay in minutes (e.g. 5 or 30).")
+        return
+
+    delay_seconds = int(delay_minutes * 60)
+    message_text = " ".join(context.args[1:]).strip()
+
+    if update.message:
+        await update.message.reply_text(
+            f"⏰ <b>Broadcast scheduled!</b>\n"
+            f"• <b>Delay:</b> {delay_minutes:.1f} minute(s) ({delay_seconds}s)\n"
+            f"• <b>Message:</b>\n<i>{escape_html(message_text)}</i>",
+            parse_mode=ParseMode.HTML,
+        )
+
+    bot = context.bot
+
+    async def _run_scheduled_broadcast():
+        await asyncio.sleep(delay_seconds)
+        uids = await db.get_all_user_ids()
+        formatted = (
+            "📢 <b>Announcement from Admin (Scheduled):</b>\n\n"
+            f"{escape_html(message_text)}"
+        )
+        delivered = 0
+        for uid in uids:
+            try:
+                await bot.send_message(chat_id=uid, text=formatted, parse_mode=ParseMode.HTML)
+                delivered += 1
+            except Exception:
+                pass
+        logger.info("Scheduled broadcast delivered to %d users.", delivered)
+
+    asyncio.create_task(_run_scheduled_broadcast())
+
+
+async def block_term_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Add a search term to the blacklist (Feature 16)."""
+    user = update.effective_user
+    if not user or not config.is_admin(user.id):
+        if update.message:
+            await update.message.reply_text("⛔ Access Denied: Admin only.")
+        return
+
+    if not context.args:
+        if update.message:
+            await update.message.reply_text("Usage: <code>/block &lt;term&gt;</code>", parse_mode=ParseMode.HTML)
+        return
+
+    term = " ".join(context.args).strip()
+    success = await db.add_blocked_term(term, user.id)
+    if success:
+        await update.message.reply_text(
+            f"🚫 <b>Term blocked:</b> <code>{escape_html(term)}</code> has been added to search blacklist.",
+            parse_mode=ParseMode.HTML,
+        )
+    else:
+        await update.message.reply_text(f"Term <code>{escape_html(term)}</code> is already blocked.", parse_mode=ParseMode.HTML)
+
+
+async def unblock_term_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Remove a search term from the blacklist (Feature 16)."""
+    user = update.effective_user
+    if not user or not config.is_admin(user.id):
+        if update.message:
+            await update.message.reply_text("⛔ Access Denied: Admin only.")
+        return
+
+    if not context.args:
+        if update.message:
+            await update.message.reply_text("Usage: <code>/unblock &lt;term&gt;</code>", parse_mode=ParseMode.HTML)
+        return
+
+    term = " ".join(context.args).strip()
+    success = await db.remove_blocked_term(term)
+    if success:
+        await update.message.reply_text(
+            f"✅ <b>Term unblocked:</b> <code>{escape_html(term)}</code> has been removed from blacklist.",
+            parse_mode=ParseMode.HTML,
+        )
+    else:
+        await update.message.reply_text(f"Term <code>{escape_html(term)}</code> was not in the blacklist.", parse_mode=ParseMode.HTML)
+
+
+async def blocklist_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """List all blocked search terms (Feature 16)."""
+    user = update.effective_user
+    if not user or not config.is_admin(user.id):
+        if update.message:
+            await update.message.reply_text("⛔ Access Denied: Admin only.")
+        return
+
+    terms = await db.get_blocked_terms()
+    if not terms:
+        await update.message.reply_text("📋 <b>Search Blacklist:</b>\n\nNo terms are currently blocked.", parse_mode=ParseMode.HTML)
+        return
+
+    lines = ["📋 <b>Search Blacklist (Blocked Terms):</b>\n"]
+    for idx, t in enumerate(terms, start=1):
+        lines.append(f"  {idx}. <code>{escape_html(t)}</code>")
+    lines.append("\n<i>Use /unblock &lt;term&gt; to remove a term.</i>")
+
+    await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)

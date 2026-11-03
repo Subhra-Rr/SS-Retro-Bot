@@ -45,6 +45,159 @@ def _clean_track_title(title: str) -> str:
     return cleaned.strip() or title
 
 
+async def _execute_download_and_delivery(
+    query,
+    context: ContextTypes.DEFAULT_TYPE,
+    track_id: str,
+    quality: str = "320",
+    output_format: str = "mp3",
+) -> None:
+    """Execute audio download and delivery workflow with live progress meter and recommendations."""
+    user = query.from_user
+    chat = query.message.chat if query.message else None
+    if not user or not chat:
+        return
+
+    await safe_answer_callback(query, f"Preparing {output_format.upper()} audio download...")
+
+    track: UnifiedTrack | None = None
+    if context.user_data and f"selected:{track_id}" in context.user_data:
+        track = UnifiedTrack.from_dict(context.user_data[f"selected:{track_id}"])
+    else:
+        track = await search_engine.get_track_by_id(track_id)
+
+    if not track:
+        try:
+            recent = await db.get_recent_tracks(user.id, limit=30)
+            for r in recent:
+                if str(r.get("id")) == str(track_id):
+                    track = UnifiedTrack.from_dict(r)
+                    break
+        except Exception:
+            pass
+
+    if not track:
+        await safe_answer_callback(query, "Could not find track information. Please try searching again.", show_alert=True)
+        return
+
+    if track.duration and track.duration > 7200:
+        dur_mins = track.duration // 60
+        await safe_answer_callback(
+            query,
+            f"This compilation is {dur_mins}m long and exceeds Telegram's 50MB file size limit. Please select an individual song.",
+            show_alert=True,
+        )
+        return
+
+    status_msg = None
+    try:
+        status_msg = await context.bot.send_message(
+            chat_id=chat.id,
+            text=(
+                f"⏬ <i>Starting download for '<b>{escape_html(track.title)}</b>'...</i>\n"
+                f"[▱▱▱▱▱▱▱▱▱▱] <b>0%</b> • [{quality} kbps {output_format.upper()}]"
+            ),
+            parse_mode=ParseMode.HTML,
+        )
+    except Exception as e:
+        logger.warning("Could not send download status message: %s", e)
+
+    try:
+        # Match stream on YouTube if needed
+        if not track.has_full_audio or not track.audio_url:
+            try:
+                yt_provider = registry.get_provider("YouTube Music")
+                if yt_provider:
+                    cleaned_title = _clean_track_title(track.title)
+                    search_term = f"{cleaned_title} {track.artist}".strip()
+                    yt_results = await yt_provider.search(search_term, limit=3)
+                    if not yt_results and cleaned_title != track.title:
+                        yt_results = await yt_provider.search(cleaned_title, limit=3)
+
+                    if yt_results:
+                        matched = yt_results[0]
+                        track.audio_url = matched.audio_url
+                        track.has_full_audio = True
+                        track.allow_redistribution = True
+                        track.provider_name = "YouTube Music"
+                        if matched.duration:
+                            track.duration = matched.duration
+            except Exception as ex:
+                logger.warning("Could not match stream on YouTube for %s: %s", track.title, ex)
+
+        if not track.has_full_audio or not track.audio_url:
+            if status_msg:
+                await safe_edit_message(
+                    status_msg,
+                    f"❌ Could not find a stream for '<b>{escape_html(track.title)}</b>'. "
+                    "Try typing the song name directly to download from YouTube.",
+                    parse_mode=ParseMode.HTML,
+                )
+            return
+
+        success, err, msg = await audio_delivery.deliver_track(
+            bot=context.bot,
+            chat_id=chat.id,
+            track=track,
+            user_id=user.id,
+            status_msg=status_msg,
+            quality=quality,
+            output_format=output_format,
+        )
+
+        if success and msg:
+            if status_msg:
+                await safe_delete_message(status_msg)
+
+            # Feature 6: Similar Songs / Recommendations
+            try:
+                similar_tracks = await search_engine.search(track.artist, user_id=user.id, max_total_results=4)
+                rec_keyboard = []
+                for st in similar_tracks:
+                    if st.id != track.id:
+                        rec_keyboard.append([
+                            InlineKeyboardButton(f"🎵 {st.title[:24]}", callback_data=f"track:{st.id}")
+                        ])
+                rec_keyboard.append([
+                    InlineKeyboardButton("🏷️ Edit ID3 Tags", callback_data=f"tagedit_menu:{track.id}"),
+                    InlineKeyboardButton("➕ Add to Playlist", callback_data=f"pl_choose:{track.id}"),
+                ])
+                rec_text = f"✨ <b>More tracks by {escape_html(track.artist)}:</b>"
+                await context.bot.send_message(
+                    chat_id=chat.id,
+                    text=rec_text,
+                    reply_markup=InlineKeyboardMarkup(rec_keyboard),
+                    parse_mode=ParseMode.HTML,
+                )
+            except Exception as rec_err:
+                logger.debug("Failed sending recommendations: %s", rec_err)
+        else:
+            err_text = err or "Could not retrieve audio stream from provider."
+            if status_msg:
+                await safe_edit_message(
+                    status_msg,
+                    f"⚠️ <b>Delivery notice for '<i>{escape_html(track.title)}</i>':</b>\n\n"
+                    f"<i>{escape_html(err_text)}</i>\n\n"
+                    f"💡 <i>Tip: Try searching with another keyword or selecting a different result.</i>",
+                    parse_mode=ParseMode.HTML,
+                )
+            else:
+                await context.bot.send_message(
+                    chat_id=chat.id,
+                    text=f"⚠️ <b>Delivery notice:</b> {escape_html(err_text)}",
+                    parse_mode=ParseMode.HTML,
+                )
+    except Exception as e:
+        logger.error("Download handling exception for %s: %s", track_id, e, exc_info=True)
+        if status_msg:
+            await safe_edit_message(
+                status_msg,
+                f"⚠️ <b>Download notice:</b> {escape_html(str(e))}\n\n"
+                f"Please try again shortly or select another track.",
+                parse_mode=ParseMode.HTML,
+            )
+
+
 async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Route callback queries based on prefix with comprehensive error protection."""
     query = update.callback_query
@@ -82,6 +235,8 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 [
                     InlineKeyboardButton("⭐ Favorites", callback_data="cmd:favorites"),
                     InlineKeyboardButton("🕒 Recent", callback_data="cmd:recent"),
+                    InlineKeyboardButton("📁 Playlists", callback_data="cmd:playlist"),
+                    InlineKeyboardButton("📊 Stats", callback_data="cmd:stats"),
                 ],
                 [
                     InlineKeyboardButton("🇮🇳 Hindi Hits", callback_data="qsearch:Hindi"),
@@ -112,6 +267,12 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             await recent_command(update, context)
         elif cmd == "favorites":
             await favorites_command(update, context)
+        elif cmd == "playlist":
+            from handlers.playlist import playlist_command
+            await playlist_command(update, context)
+        elif cmd == "stats":
+            from handlers.stats import stats_command
+            await stats_command(update, context)
         elif cmd == "settings":
             await settings_command(update, context)
         elif cmd == "admin":
@@ -225,8 +386,14 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         else:
             card_lines.append("\n✅ <b>Complete audio track is ready for download.</b>")
         keyboard = [
-            [InlineKeyboardButton("📥 Download (320 kbps MP3)", callback_data=f"dl:{track.id}")],
-            [InlineKeyboardButton("🎛️ Audio FX Studio", callback_data=f"fx_menu:{track.id}")],
+            [
+                InlineKeyboardButton("📥 Download (Fast)", callback_data=f"dl:{track.id}"),
+                InlineKeyboardButton("🎚️ Quality Selector", callback_data=f"dl_menu:{track.id}"),
+            ],
+            [
+                InlineKeyboardButton("🎛️ Audio FX Studio", callback_data=f"fx_menu:{track.id}"),
+                InlineKeyboardButton("➕ Add to Playlist", callback_data=f"pl_choose:{track.id}"),
+            ],
         ]
 
         if track.external_url:
@@ -249,127 +416,216 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         )
         return
 
-    # Full audio download & delivery: dl:{track_id}
+    # Audio Quality & Format Selector menu (Feature 1 & Feature 12)
+    if data.startswith("dl_menu:"):
+        track_id = data.split(":", 1)[1]
+        await safe_answer_callback(query, "Loading Quality Selector...")
+        text = (
+            "🎚️ <b>Audio Quality & Export Format Selector</b>\n\n"
+            "Select your desired bitrate or lossless export format:"
+        )
+        keyboard = [
+            [
+                InlineKeyboardButton("💎 320 kbps (Studio MP3)", callback_data=f"dlq:320:mp3:{track_id}"),
+                InlineKeyboardButton("🎧 192 kbps (Standard)", callback_data=f"dlq:192:mp3:{track_id}"),
+            ],
+            [
+                InlineKeyboardButton("📻 128 kbps (Compact)", callback_data=f"dlq:128:mp3:{track_id}"),
+                InlineKeyboardButton("⚡ 64 kbps (Data Saver)", callback_data=f"dlq:64:mp3:{track_id}"),
+            ],
+            [
+                InlineKeyboardButton("🎵 Lossless FLAC", callback_data=f"dlq:0:flac:{track_id}"),
+                InlineKeyboardButton("🎼 Lossless WAV", callback_data=f"dlq:0:wav:{track_id}"),
+            ],
+            [InlineKeyboardButton("🔙 Back to Track", callback_data=f"track:{track_id}")],
+        ]
+        await safe_edit_message(query, text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.HTML)
+        return
+
+    # Specific bitrate & format download: dlq:{quality}:{format}:{track_id}
+    if data.startswith("dlq:"):
+        parts = data.split(":", 3)
+        if len(parts) == 4:
+            quality, out_fmt, track_id = parts[1], parts[2], parts[3]
+            await _execute_download_and_delivery(query, context, track_id, quality=quality, output_format=out_fmt)
+        return
+
+    # Default audio download & delivery: dl:{track_id}
     if data.startswith("dl:"):
         track_id = data.split(":", 1)[1]
-        await safe_answer_callback(query, "Preparing audio download...")
-
-        # Retrieve track from memory, provider, or database fallback
-        track: UnifiedTrack | None = None
-        if context.user_data and f"selected:{track_id}" in context.user_data:
-            track = UnifiedTrack.from_dict(context.user_data[f"selected:{track_id}"])
+        settings = await db.get_user_settings(user.id)
+        user_q = settings.get("audio_quality", "320")
+        if user_q in ("flac", "wav"):
+            fmt = user_q
+            q = "0"
         else:
-            track = await search_engine.get_track_by_id(track_id)
+            fmt = "mp3"
+            q = user_q if user_q in ("64", "128", "192", "320") else "320"
+        await _execute_download_and_delivery(query, context, track_id, quality=q, output_format=fmt)
+        return
 
-        if not track:
-            try:
-                recent = await db.get_recent_tracks(user.id, limit=30)
-                for r in recent:
-                    if str(r.get("id")) == str(track_id):
-                        track = UnifiedTrack.from_dict(r)
-                        break
-            except Exception:
-                pass
-
-        if not track:
-            await safe_answer_callback(query, "Could not find track information. Please try searching again.", show_alert=True)
-            return
-
-        if track.duration and track.duration > 7200:
-            dur_mins = track.duration // 60
+    # Personal Playlist Selector: pl_choose:{track_id} (Feature 13)
+    if data.startswith("pl_choose:"):
+        track_id = data.split(":", 1)[1]
+        playlists = await db.get_playlists(user.id)
+        if not playlists:
             await safe_answer_callback(
-                query,
-                f"This compilation is {dur_mins}m long and exceeds Telegram's 50MB file size limit. Please select an individual song.",
-                show_alert=True,
+                query, "No playlists created yet. Create one with: /playlist create <name>", show_alert=True
             )
             return
+        keyboard = []
+        for pl in playlists:
+            keyboard.append([
+                InlineKeyboardButton(f"📁 {pl['name']}", callback_data=f"pl_add:{pl['id']}:{track_id}")
+            ])
+        keyboard.append([InlineKeyboardButton("🔙 Back to Track", callback_data=f"track:{track_id}")])
+        await safe_edit_message(
+            query,
+            "➕ <b>Select a playlist to add this track:</b>",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode=ParseMode.HTML,
+        )
+        return
 
-        status_msg = None
-        try:
-            status_msg = await context.bot.send_message(
-                chat_id=chat.id,
-                text=f"⏳ <i>Downloading audio for '<b>{escape_html(track.title)}</b>'...</i>",
+    # Add track to playlist: pl_add:{playlist_id}:{track_id}
+    if data.startswith("pl_add:"):
+        parts = data.split(":")
+        if len(parts) == 3:
+            playlist_id = int(parts[1])
+            track_id = parts[2]
+            track = await search_engine.get_track_by_id(track_id)
+            if not track and context.user_data and f"selected:{track_id}" in context.user_data:
+                track = UnifiedTrack.from_dict(context.user_data[f"selected:{track_id}"])
+            if track:
+                added = await db.add_track_to_playlist(playlist_id, track.to_dict())
+                if added:
+                    await safe_answer_callback(query, "✅ Track added to playlist!", show_alert=False)
+                else:
+                    await safe_answer_callback(query, "Track is already in this playlist.", show_alert=False)
+            await safe_answer_callback(query)
+        return
+
+    # Batch / Queue Download mode: batch_init:{query_hash} (Feature 2)
+    if data.startswith("batch_init:"):
+        query_hash = data.split(":", 1)[1]
+        cached = context.user_data.get(f"search:{query_hash}") if context.user_data else None
+        if not cached:
+            await safe_answer_callback(query, "Search session expired. Please search again.", show_alert=True)
+            return
+        context.user_data[f"batch_sel:{query_hash}"] = set()
+        tracks = cached.get("tracks", [])
+        lines = [
+            "📦 <b>Batch Download Selection</b>\n",
+            "Select songs to download in queue:\n",
+        ]
+        keyboard = []
+        for idx, t in enumerate(tracks[:6]):
+            keyboard.append([
+                InlineKeyboardButton(f"⬜ {idx+1}. {t.get('title', '')[:24]}", callback_data=f"batch_toggle:{query_hash}:{idx}")
+            ])
+        keyboard.append([
+            InlineKeyboardButton("🚀 Download Selected (0)", callback_data=f"batch_download:{query_hash}"),
+            InlineKeyboardButton("🔙 Back to Search", callback_data=f"page:{query_hash}:1"),
+        ])
+        await safe_answer_callback(query)
+        await safe_edit_message(query, "\n".join(lines), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.HTML)
+        return
+
+    # Batch toggle: batch_toggle:{query_hash}:{idx}
+    if data.startswith("batch_toggle:"):
+        parts = data.split(":")
+        if len(parts) == 3:
+            query_hash, idx_str = parts[1], parts[2]
+            idx = int(idx_str)
+            cached = context.user_data.get(f"search:{query_hash}") if context.user_data else None
+            selected = context.user_data.get(f"batch_sel:{query_hash}", set())
+            if idx in selected:
+                selected.remove(idx)
+            else:
+                selected.add(idx)
+            context.user_data[f"batch_sel:{query_hash}"] = selected
+            tracks = cached.get("tracks", []) if cached else []
+            lines = [
+                "📦 <b>Batch Download Selection</b>\n",
+                f"Selected: <b>{len(selected)}</b> song(s)\n",
+            ]
+            keyboard = []
+            for i, t in enumerate(tracks[:6]):
+                mark = "☑️" if i in selected else "⬜"
+                keyboard.append([
+                    InlineKeyboardButton(f"{mark} {i+1}. {t.get('title', '')[:24]}", callback_data=f"batch_toggle:{query_hash}:{i}")
+                ])
+            keyboard.append([
+                InlineKeyboardButton(f"🚀 Download Selected ({len(selected)})", callback_data=f"batch_download:{query_hash}"),
+                InlineKeyboardButton("🔙 Back to Search", callback_data=f"page:{query_hash}:1"),
+            ])
+            await safe_answer_callback(query)
+            await safe_edit_message(query, "\n".join(lines), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.HTML)
+        return
+
+    # Execute batch queue download: batch_download:{query_hash}
+    if data.startswith("batch_download:"):
+        query_hash = data.split(":", 1)[1]
+        cached = context.user_data.get(f"search:{query_hash}") if context.user_data else None
+        selected = context.user_data.get(f"batch_sel:{query_hash}", set()) if context.user_data else set()
+        if not selected:
+            await safe_answer_callback(query, "Please select at least one song first!", show_alert=True)
+            return
+        tracks = cached.get("tracks", []) if cached else []
+        selected_tracks = [tracks[i] for i in sorted(selected) if i < len(tracks)]
+        await safe_answer_callback(query, f"Starting download of {len(selected_tracks)} song(s)...")
+        status_msg = await context.bot.send_message(
+            chat_id=chat.id,
+            text=f"📦 <i>Starting queue download of <b>{len(selected_tracks)}</b> track(s)...</i>",
+            parse_mode=ParseMode.HTML,
+        )
+        for num, t_dict in enumerate(selected_tracks, start=1):
+            t = UnifiedTrack.from_dict(t_dict)
+            await safe_edit_message(
+                status_msg,
+                f"📦 <i>Downloading track {num} of {len(selected_tracks)}: '<b>{escape_html(t.title)}</b>'...</i>",
                 parse_mode=ParseMode.HTML,
             )
-        except Exception as e:
-            logger.warning("Could not send download status message: %s", e)
-
-        try:
-            # If track has no direct full audio (e.g. from iTunes/Spotify), find matching stream on YouTube
-            if not track.has_full_audio or not track.audio_url:
+            if not t.has_full_audio or not t.audio_url:
                 try:
-                    yt_provider = registry.get_provider("YouTube Music")
-                    if yt_provider:
-                        cleaned_title = _clean_track_title(track.title)
-                        search_term = f"{cleaned_title} {track.artist}".strip()
-                        yt_results = await yt_provider.search(search_term, limit=3)
-                        if not yt_results and cleaned_title != track.title:
-                            yt_results = await yt_provider.search(cleaned_title, limit=3)
-
-                        if yt_results:
-                            matched = yt_results[0]
-                            track.audio_url = matched.audio_url
-                            track.has_full_audio = True
-                            track.allow_redistribution = True
-                            track.provider_name = "YouTube Music"
-                            if matched.duration:
-                                track.duration = matched.duration
-                except Exception as ex:
-                    logger.warning("Could not match stream on YouTube for %s: %s", track.title, ex)
-
-            if not track.has_full_audio or not track.audio_url:
-                if status_msg:
-                    await safe_edit_message(
-                        status_msg,
-                        f"❌ Could not find a stream for '<b>{escape_html(track.title)}</b>'. "
-                        "Try typing the song name directly to download from YouTube.",
-                        parse_mode=ParseMode.HTML,
-                    )
-                return
-
-            success, err, msg = await audio_delivery.deliver_track(
-                bot=context.bot,
-                chat_id=chat.id,
-                track=track,
-                user_id=user.id,
-            )
-
-            if success and msg:
-                # Successfully delivered audio! Now clean up the status indicator
-                if status_msg:
-                    await safe_delete_message(status_msg)
-            else:
-                # Delivery was not completed — keep message and inform the user clearly
-                err_text = err or "Could not retrieve audio stream from provider."
-                if status_msg:
-                    await safe_edit_message(
-                        status_msg,
-                        f"⚠️ <b>Delivery notice for '<i>{escape_html(track.title)}</i>':</b>\n\n"
-                        f"<i>{escape_html(err_text)}</i>\n\n"
-                        f"💡 <i>Tip: Try searching with another keyword or selecting a different result.</i>",
-                        parse_mode=ParseMode.HTML,
-                    )
-                else:
-                    await context.bot.send_message(
-                        chat_id=chat.id,
-                        text=f"⚠️ <b>Delivery notice:</b> {escape_html(err_text)}",
-                        parse_mode=ParseMode.HTML,
-                    )
-        except Exception as e:
-            logger.error("Download handling exception for %s: %s", track_id, e, exc_info=True)
-            if status_msg:
-                await safe_edit_message(
-                    status_msg,
-                    f"⚠️ <b>Download notice:</b> {escape_html(str(e))}\n\n"
-                    f"Please try again shortly or select another track.",
-                    parse_mode=ParseMode.HTML,
-                )
-            else:
-                await context.bot.send_message(
+                    yt_p = registry.get_provider("YouTube Music")
+                    if yt_p:
+                        cl_t = _clean_track_title(t.title)
+                        yt_res = await yt_p.search(f"{cl_t} {t.artist}".strip(), limit=2)
+                        if yt_res:
+                            t.audio_url = yt_res[0].audio_url
+                            t.has_full_audio = True
+                            t.provider_name = "YouTube Music"
+                            if yt_res[0].duration:
+                                t.duration = yt_res[0].duration
+                except Exception:
+                    pass
+            if t.has_full_audio and t.audio_url:
+                await audio_delivery.deliver_track(
+                    bot=context.bot,
                     chat_id=chat.id,
-                    text=f"⚠️ <b>Download notice:</b> {escape_html(str(e))}",
-                    parse_mode=ParseMode.HTML,
+                    track=t,
+                    user_id=user.id,
                 )
+        await safe_edit_message(
+            status_msg,
+            f"✅ <b>Batch Download Completed!</b> Delivered {len(selected_tracks)} track(s) successfully.",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    # ID3 Tag Editor Instructions (Feature 10)
+    if data.startswith("tagedit_menu:"):
+        track_id = data.split(":", 1)[1]
+        text = (
+            "🏷️ <b>MP3 ID3 Tag Editor</b>\n\n"
+            "To customize or correct metadata tags, ID3 tags are automatically formatted "
+            "with Title, Artist, Album, and embedded Cover Art.\n"
+            "You can also customize your preferred file naming scheme in <code>/settings</code>!"
+        )
+        keyboard = [[InlineKeyboardButton("🔙 Back to Track", callback_data=f"track:{track_id}")]]
+        await safe_answer_callback(query)
+        await safe_edit_message(query, text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.HTML)
         return
 
     # Audio FX Studio menu: fx_menu:{track_id}
@@ -601,5 +857,11 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             elif key == "lang":
                 await db.update_user_setting(user.id, "preferred_language", val)
                 await safe_answer_callback(query, f"Language filter updated to {val}!")
+            elif key == "quality":
+                await db.update_user_setting(user.id, "audio_quality", val)
+                await safe_answer_callback(query, f"Default audio quality set to {val}!")
+            elif key == "fn":
+                await db.update_user_setting(user.id, "filename_format", val)
+                await safe_answer_callback(query, f"Filename format set to {val}!")
             await settings_command(update, context)
         return

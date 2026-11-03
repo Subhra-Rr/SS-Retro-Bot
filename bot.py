@@ -36,6 +36,8 @@ from handlers import (
     album_command,
     artist_command,
     audio_message_handler,
+    block_term_command,
+    blocklist_command,
     broadcast_command,
     charts_command,
     favorites_command,
@@ -43,15 +45,20 @@ from handlers import (
     help_command,
     history_command,
     inline_query_handler,
+    playlist_command,
     recent_command,
+    schedule_broadcast_command,
     search_command,
     settings_command,
     song_command,
     start_command,
+    stats_command,
     text_search_handler,
     top_command,
+    unblock_term_command,
     users_command,
 )
+from services.downloader import audio_downloader
 from services.providers.registry import registry
 from utils.logging_config import setup_logging
 
@@ -100,6 +107,9 @@ async def post_init(application: Application) -> None:
     commands = [
         BotCommand("start", "Launch the bot & main menu"),
         BotCommand("search", "Search for music by song name"),
+        BotCommand("artist", "Browse artist discography"),
+        BotCommand("playlist", "Manage personal playlists"),
+        BotCommand("stats", "Your download statistics"),
         BotCommand("charts", "Curated music charts & trending hits"),
         BotCommand("history", "View your search & download records"),
         BotCommand("help", "Help & guide for using the bot"),
@@ -119,6 +129,21 @@ async def post_init(application: Application) -> None:
         await db.clear_all_search_cache()
     except Exception as e:
         logger.debug("Could not purge search cache on startup: %s", e)
+
+    # Background Stale Cache Cleaner Task (Feature 18)
+    async def _periodic_stale_cache_cleaner():
+        while True:
+            try:
+                await asyncio.sleep(1800)  # Every 30 minutes
+                cleaned = audio_downloader.cleanup_stale_files(max_age_hours=1.0)
+                if cleaned > 0:
+                    logger.info("Background cleaner removed %d stale temporary files.", cleaned)
+            except asyncio.CancelledError:
+                break
+            except Exception as cleaner_err:
+                logger.debug("Background stale cleaner error: %s", cleaner_err)
+
+    asyncio.create_task(_periodic_stale_cache_cleaner())
 
 
 def build_application() -> Application:
@@ -147,10 +172,16 @@ def build_application() -> Application:
     app.add_handler(CommandHandler("recent", recent_command))
     app.add_handler(CommandHandler("favorites", favorites_command))
     app.add_handler(CommandHandler("settings", settings_command))
+    app.add_handler(CommandHandler("playlist", playlist_command))
+    app.add_handler(CommandHandler("stats", stats_command))
     app.add_handler(CommandHandler("admin", admin_command))
     app.add_handler(CommandHandler("users", users_command))
     app.add_handler(CommandHandler("broadcast", broadcast_command))
     app.add_handler(CommandHandler("announce", broadcast_command))
+    app.add_handler(CommandHandler("schedule_broadcast", schedule_broadcast_command))
+    app.add_handler(CommandHandler("block", block_term_command))
+    app.add_handler(CommandHandler("unblock", unblock_term_command))
+    app.add_handler(CommandHandler("blocklist", blocklist_command))
 
     # Interactive callback query router
     app.add_handler(CallbackQueryHandler(handle_callback_query))

@@ -646,3 +646,79 @@ NameError: name 'format_duration' is not defined
 2026-11-02 12:35:17 [INFO] services.search_engine: Direct YouTube URL detected: https://youtu.be/oBIx6tsc1Mk?si=M58vbeeduWtEifuw
 2026-11-02 12:41:58 [INFO] telegram.ext.Application: Application is stopping. This might take a moment.
 2026-11-02 12:41:58 [INFO] telegram.ext.Application: Application.stop() complete
+2026-11-02 16:35:21 [INFO] ss_retro_bot: Starting SS Retro Bot...
+2026-11-02 16:35:21 [INFO] ss_retro_bot: Initializing database...
+2026-11-02 16:35:21 [INFO] database: Database schema initialized at D:\SS Retro Bot\data\bot.db
+2026-11-02 16:35:21 [INFO] ss_retro_bot: Active providers (6): YouTube Music, Internet Archive, iTunes, Jamendo, Spotify, MusicBrainz
+2026-11-02 16:35:21 [INFO] ss_retro_bot: Full audio delivery providers (3): YouTube Music, Internet Archive, Jamendo
+2026-11-02 16:35:21 [INFO] ss_retro_bot: Telegram API credentials configured (API ID: 34338345)
+2026-11-02 16:35:21 [INFO] ss_retro_bot: Configuration validated. Initializing Telegram application...
+2026-11-02 16:35:21 [INFO] ss_retro_bot: Starting Telegram polling. Press Ctrl+C to terminate.
+2026-11-02 16:35:25 [INFO] ss_retro_bot: Telegram command menu & menu button registered: ['start', 'search', 'charts', 'history', 'help']
+2026-11-02 16:35:25 [INFO] database: Purged search cache database table.
+2026-11-02 16:35:25 [INFO] telegram.ext.Application: Application started
+2026-11-02 16:37:00 [INFO] services.telegram_delivery: Downloading track yt_crw6hTJlGps from YouTube Music
+2026-11-02 16:40:25 [INFO] services.telegram_delivery: Downloading track yt_iQeMdqE1Llo from YouTube Music
+2026-11-02 16:45:12 [INFO] services.telegram_delivery: Downloading track yt_qDWeJkNXxKs from YouTube Music
+2026-11-02 16:48:21 [INFO] services.telegram_delivery: Downloading track yt_0lapF4DQPKQ from YouTube Music
+2026-11-02 17:01:38 [INFO] ss_retro_bot: Starting SS Retro Bot...
+2026-11-02 17:01:38 [INFO] ss_retro_bot: Initializing database...
+2026-11-02 17:01:38 [INFO] database: Database schema initialized at D:\SS Retro Bot\data\bot.db
+2026-11-02 17:01:38 [INFO] ss_retro_bot: Active providers (6): YouTube Music, Internet Archive, iTunes, Jamendo, Spotify, MusicBrainz
+2026-11-02 17:01:38 [INFO] ss_retro_bot: Full audio delivery providers (3): YouTube Music, Internet Archive, Jamendo
+2026-11-02 17:01:38 [INFO] ss_retro_bot: Telegram API credentials configured (API ID: 34338345)
+2026-11-02 17:01:38 [INFO] ss_retro_bot: Configuration validated. Initializing Telegram application...
+2026-11-02 17:01:39 [INFO] ss_retro_bot: Starting Telegram polling. Press Ctrl+C to terminate.
+2026-11-02 17:01:40 [WARNING] ss_retro_bot: Could not set Telegram bot commands: httpx.ReadError: 
+2026-11-02 17:02:51 [INFO] ss_retro_bot: Starting SS Retro Bot...
+2026-11-02 17:02:51 [INFO] ss_retro_bot: Initializing database...
+2026-11-02 17:02:51 [INFO] database: Database schema initialized at D:\SS Retro Bot\data\bot.db
+2026-11-02 17:02:51 [INFO] ss_retro_bot: Active providers (6): YouTube Music, Internet Archive, iTunes, Jamendo, Spotify, MusicBrainz
+2026-11-02 17:02:51 [INFO] ss_retro_bot: Full audio delivery providers (3): YouTube Music, Internet Archive, Jamendo
+2026-11-02 17:02:51 [INFO] ss_retro_bot: Telegram API credentials configured (API ID: 34338345)
+2026-11-02 17:02:51 [INFO] ss_retro_bot: Configuration validated. Initializing Telegram application...
+2026-11-02 17:02:51 [INFO] ss_retro_bot: Starting Telegram polling. Press Ctrl+C to terminate.
+2026-11-02 17:02:55 [INFO] ss_retro_bot: Telegram command menu & menu button registered: ['start', 'search', 'charts', 'history', 'help']
+2026-11-02 17:02:55 [INFO] database: Purged search cache database table.
+2026-11-02 17:02:55 [INFO] telegram.ext.Application: Application started
+2026-11-02 17:03:19 [INFO] telegram.ext.Application: Application is stopping. This might take a moment.
+2026-11-02 17:03:19 [INFO] telegram.ext.Application: Application.stop() complete
+2026-11-03 10:07:46 [INFO] ss_retro_bot: Starting SS Retro Bot...
+2026-11-03 10:07:46 [INFO] ss_retro_bot: Initializing database...
+2026-11-03 10:07:46 [INFO] database: Database schema initialized at D:\SS Retro Bot\data\bot.db
+2026-11-03 10:07:46 [INFO] ss_retro_bot: Active providers (6): YouTube Music, Internet Archive, iTunes, Jamendo, Spotify, MusicBrainz
+2026-11-03 10:07:46 [INFO] ss_retro_bot: Full audio delivery providers (3): YouTube Music, Internet Archive, Jamendo
+2026-11-03 10:07:46 [INFO] ss_retro_bot: Telegram API credentials configured (API ID: 34338345)
+2026-11-03 10:07:46 [INFO] ss_retro_bot: Configuration validated. Initializing Telegram application...
+2026-11-03 10:07:46 [INFO] ss_retro_bot: Starting Telegram polling. Press Ctrl+C to terminate.
+2026-11-03 10:07:48 [INFO] ss_retro_bot: Telegram command menu & menu button registered: ['start', 'search', 'charts', 'history', 'help']
+2026-11-03 10:07:48 [INFO] database: Purged search cache database table.
+2026-11-03 10:07:48 [INFO] telegram.ext.Application: Application started
+2026-11-03 10:11:45 [INFO] services.telegram_delivery: Downloading track itunes_1337337841 from YouTube Music
+2026-11-03 10:24:21 [INFO] telegram.ext.Application: Application is stopping. This might take a moment.
+2026-11-03 10:24:21 [INFO] telegram.ext.Application: Application.stop() complete
+2026-11-03 11:59:40 [INFO] ss_retro_bot: Starting SS Retro Bot...
+2026-11-03 11:59:40 [INFO] ss_retro_bot: Initializing database...
+2026-11-03 11:59:40 [INFO] database: Database schema initialized at D:\SS Retro Bot\data\bot.db
+2026-11-03 11:59:40 [INFO] ss_retro_bot: Active providers (6): YouTube Music, Internet Archive, iTunes, Jamendo, Spotify, MusicBrainz
+2026-11-03 11:59:40 [INFO] ss_retro_bot: Full audio delivery providers (3): YouTube Music, Internet Archive, Jamendo
+2026-11-03 11:59:40 [INFO] ss_retro_bot: Telegram API credentials configured (API ID: 34338345)
+2026-11-03 11:59:40 [INFO] ss_retro_bot: Configuration validated. Initializing Telegram application...
+2026-11-03 11:59:41 [INFO] ss_retro_bot: Starting Telegram polling. Press Ctrl+C to terminate.
+2026-11-03 11:59:43 [INFO] ss_retro_bot: Telegram command menu & menu button registered: ['start', 'search', 'charts', 'history', 'help']
+2026-11-03 11:59:43 [INFO] database: Purged search cache database table.
+2026-11-03 11:59:43 [INFO] telegram.ext.Application: Application started
+2026-11-03 13:27:59 [INFO] ss_retro_bot: Starting SS Retro Bot...
+2026-11-03 13:27:59 [INFO] ss_retro_bot: Initializing database...
+2026-11-03 13:27:59 [INFO] database: Database schema initialized at D:\SS Retro Bot\data\bot.db
+2026-11-03 13:27:59 [INFO] ss_retro_bot: Active providers (6): YouTube Music, Internet Archive, iTunes, Jamendo, Spotify, MusicBrainz
+2026-11-03 13:27:59 [INFO] ss_retro_bot: Full audio delivery providers (3): YouTube Music, Internet Archive, Jamendo
+2026-11-03 13:27:59 [INFO] ss_retro_bot: Telegram API credentials configured (API ID: 34338345)
+2026-11-03 13:48:36 [INFO] ss_retro_bot: Starting SS Retro Bot...
+2026-11-03 13:48:36 [INFO] ss_retro_bot: Initializing database...
+2026-11-03 13:48:36 [INFO] database: Database schema initialized at D:\SS Retro Bot\data\bot.db
+2026-11-03 13:48:36 [INFO] ss_retro_bot: Active providers (6): YouTube Music, Internet Archive, iTunes, Jamendo, Spotify, MusicBrainz
+2026-11-03 13:48:36 [INFO] ss_retro_bot: Full audio delivery providers (3): YouTube Music, Internet Archive, Jamendo
+2026-11-03 13:48:36 [INFO] ss_retro_bot: Telegram API credentials configured (API ID: 34338345)
+2026-11-03 13:49:57 [INFO] telegram.ext.Application: Application is stopping. This might take a moment.
+2026-11-03 13:49:57 [INFO] telegram.ext.Application: Application.stop() complete
